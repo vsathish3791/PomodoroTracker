@@ -86,6 +86,10 @@ class PomodoroTimer:
     # ---------- queries ----------
 
     def duration_seconds(self, phase: Phase | None = None) -> float:
+        """Length of a phase. A phase that has started keeps the length it started with,
+        so changing settings mid-block only affects the next block."""
+        if phase is None and self._locked_duration is not None:
+            return self._locked_duration
         phase = phase or self.phase
         minutes = {
             Phase.IDLE: self.settings.focus_minutes,
@@ -118,6 +122,7 @@ class PomodoroTimer:
         if self.phase == Phase.IDLE:
             self.phase = Phase.FOCUS
         if self._phase_start is None:
+            self._locked_duration = self.duration_seconds(self.phase)
             self._phase_start = self._now()
         self._resumed_at = self._clock()
         self.running = True
@@ -159,6 +164,7 @@ class PomodoroTimer:
         self._accumulated = 0.0
         self._resumed_at = 0.0
         self._phase_start: datetime | None = None
+        self._locked_duration: float | None = None
 
     def _emit_record(self, completed: bool):
         elapsed = self.duration_seconds() if completed else self.elapsed_seconds()

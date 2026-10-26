@@ -8,6 +8,7 @@ even though Phase 1 only uses `sessions` and `settings`, so later phases
 don't need a migration.
 """
 
+import json
 import os
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -79,6 +80,11 @@ DEFAULT_SETTINGS = {
     "daily_goal": "8",
     "working_days": "0,1,2,3,4",    # Monday=0 ... Sunday=6; used for at-risk deadlines
     "last_summary_date": "",        # the day the morning summary was last shown
+    "score_weights": "{}",          # Focus Score points changed in Settings (JSON)
+    "hotkey_enabled": "1",
+    "hotkey": "Ctrl+Alt+P",         # global shortcut for Start / Pause
+    "mini_window_visible": "0",
+    "mini_window_pos": "",          # "x,y" of the mini timer
     "sound_enabled": "1",
 }
 
@@ -126,6 +132,12 @@ class Database:
 
     def get_working_days(self) -> set[int]:
         return {int(day) for day in self.get_setting("working_days").split(",") if day.strip()}
+
+    def get_json(self, key: str) -> dict:
+        try:
+            return json.loads(self.get_setting(key) or "{}")
+        except json.JSONDecodeError:
+            return {}
 
     def set_setting(self, key: str, value):
         if isinstance(value, bool):

@@ -16,29 +16,55 @@ left. Tasks without an estimate can't be checked, so they never count as at risk
 This module is plain Python (no Qt, no database) so it is easy to test.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, timedelta
 
 from pomodoro.models import DEFAULT_PRIORITY, PRIORITIES, due_label
 
-PRIORITY_WEIGHTS = {1: 40, 2: 25, 3: 10, 4: 0}
-RISK_BONUS = 20
+@dataclass
+class ScoreWeights:
+    """Points used by the Focus Score. You can change them in Settings."""
+    p1: int = 40
+    p2: int = 25
+    p3: int = 10
+    p4: int = 0
+    overdue: int = 50
+    due_today: int = 40
+    due_tomorrow: int = 30
+    within_3_days: int = 20
+    within_7_days: int = 10
+    at_risk: int = 20
+
+    def priority(self, level: int) -> int:
+        return {1: self.p1, 2: self.p2, 3: self.p3, 4: self.p4}[level]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ScoreWeights":
+        """Build from saved settings, ignoring unknown keys and keeping defaults for missing ones."""
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: int(v) for k, v in data.items() if k in known})
 
 
-def urgency_weight(due: date | None, today: date) -> int:
+DEFAULT_WEIGHTS = ScoreWeights()
+
+
+def urgency_weight(due: date | None, today: date, weights: ScoreWeights = DEFAULT_WEIGHTS) -> int:
     if due is None:
         return 0
     days = (due - today).days
     if days < 0:
-        return 50     # overdue
+        return weights.overdue
     if days == 0:
-        return 40     # due today
+        return weights.due_today
     if days == 1:
-        return 30     # tomorrow
+        return weights.due_tomorrow
     if days <= 3:
-        return 20
+        return weights.within_3_days
     if days <= 7:
-        return 10
+        return weights.within_7_days
     return 0
 
 
@@ -118,7 +144,8 @@ def find_at_risk(tasks: list[dict], today: date, daily_goal: int, done_today: in
 
 
 def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8,
-               done_today: int = 0, working_days: set[int] | None = None) -> list[ScoredTask]:
+               done_today: int = 0, working_days: set[int] | None = None,
+               weights: ScoreWeights = DEFAULT_WEIGHTS) -> list[ScoredTask]:
     """Score and sort tasks, best next task first. Done and On Hold tasks are left out.
 
     `tasks` are dicts as returned by Database.list_tasks (with a 'pomodoros' total).
@@ -133,8 +160,8 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
         due = _due_date(task)
         at_risk = task["id"] in risky
         remaining = remaining_pomodoros(task)
-        score = (PRIORITY_WEIGHTS[task["priority"]] + urgency_weight(due, today)
-                 + (RISK_BONUS if at_risk else 0))
+        score = (weights.priority(task["priority"]) + urgency_weight(due, today, weights)
+                 + (weights.at_risk if at_risk else 0))
 
         reasons = [PRIORITIES[task["priority"]]]
         if due is not None:
@@ -157,8 +184,8 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
     return scored
 
 
-def should_warn(chosen_id: int | None, ranked: list[ScoredTask], today: date | None = None
-                ) -> ScoredTask | None:
+def should_warn(chosen_id: int | None, ranked: list[ScoredTask], today: date | None = None,
+                weights: ScoreWeights = DEFAULT_WEIGHTS) -> ScoredTask | None:
     """The task to warn about if you're starting something less important, else None.
 
     Warns only when the top task is urgent and scores higher than the chosen one.
@@ -169,7 +196,7 @@ def should_warn(chosen_id: int | None, ranked: list[ScoredTask], today: date | N
         return None
     top = ranked[0]
     chosen = next((s for s in ranked if s.id == chosen_id), None)
-    chosen_score = chosen.score if chosen else PRIORITY_WEIGHTS[DEFAULT_PRIORITY]
+    chosen_score = chosen.score if chosen else weights.priority(DEFAULT_PRIORITY)
     if top.is_urgent(today) and top.score > chosen_score:
         return top
     return None

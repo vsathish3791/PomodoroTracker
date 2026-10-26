@@ -42,6 +42,17 @@ class MainWindow(QMainWindow):
         root.setFixedWidth(480)
         self.tabs.addTab(wrapper, "Timer")
 
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 4, 8, 4)
+        self.mini_button = QPushButton("⧉ Mini timer", objectName="small")
+        self.mini_button.setToolTip("Show a small always-on-top timer")
+        self.settings_button = QPushButton("⚙ Settings", objectName="small")
+        for button in (self.mini_button, self.settings_button):
+            button.setCursor(Qt.PointingHandCursor)
+            corner_layout.addWidget(button)
+        self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
+
         # Type a new task name or pick a recent one from the drop-down.
         self.task_input = QComboBox(objectName="task", editable=True)
         self.task_input.setInsertPolicy(QComboBox.NoInsert)

@@ -13,6 +13,8 @@ class TrayIcon(QSystemTrayIcon):
     show_window = Signal()
     toggle_timer = Signal()
     skip_phase = Signal()
+    toggle_mini = Signal()
+    open_settings = Signal()
     quit_app = Signal()
 
     def __init__(self, parent=None):
@@ -23,11 +25,17 @@ class TrayIcon(QSystemTrayIcon):
         self.show_action = QAction("Show window", menu, triggered=self.show_window.emit)
         self.toggle_action = QAction("Start", menu, triggered=self.toggle_timer.emit)
         self.skip_action = QAction("Skip", menu, triggered=self.skip_phase.emit)
+        self.mini_action = QAction("Mini timer", menu, checkable=True,
+                                   triggered=lambda _: self.toggle_mini.emit())
+        settings_action = QAction("Settings…", menu, triggered=self.open_settings.emit)
         quit_action = QAction("Quit", menu, triggered=self.quit_app.emit)
         menu.addAction(self.show_action)
         menu.addSeparator()
         menu.addAction(self.toggle_action)
         menu.addAction(self.skip_action)
+        menu.addSeparator()
+        menu.addAction(self.mini_action)
+        menu.addAction(settings_action)
         menu.addSeparator()
         menu.addAction(quit_action)
         self.setContextMenu(menu)

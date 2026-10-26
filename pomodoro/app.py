@@ -1,16 +1,23 @@
 """Wires the pieces together: database + timer + window + tray icon."""
 
+import os
 import sys
 from datetime import date
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
+from pomodoro import __version__
 from pomodoro.database import Database
+from pomodoro.hotkey import GlobalHotkey
 from pomodoro.models import PRIORITIES, due_label, pomodoro_progress
-from pomodoro.priority import ScoredTask, day_summary, rank_tasks, should_warn
+from pomodoro.priority import ScoredTask, ScoreWeights, day_summary, rank_tasks, should_warn
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
 from pomodoro.ui.main_window import MainWindow
+from pomodoro.ui.mini_window import MiniWindow
+from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
 from pomodoro.ui.reports_tab import ReportsTab
 from pomodoro.ui.tasks_tab import TasksTab
@@ -79,9 +86,26 @@ class PomodoroApp:
             self.tray.show_window.connect(self.show_window)
             self.tray.toggle_timer.connect(self.start_or_pause)
             self.tray.skip_phase.connect(self.timer.skip)
+            self.tray.toggle_mini.connect(self.toggle_mini)
+            self.tray.open_settings.connect(self.open_settings)
             self.tray.quit_app.connect(self.quit)
             self.tray.show()
         self._told_about_tray = False
+
+        self.window.settings_button.clicked.connect(self.open_settings)
+        self.window.mini_button.clicked.connect(self.toggle_mini)
+
+        # Small always-on-top timer
+        self.mini = MiniWindow()
+        self.mini.toggle_requested.connect(self.start_or_pause)
+        self.mini.open_main.connect(self.show_window)
+        self.mini.hidden_by_user.connect(lambda: self._set_mini_visible(False))
+        self.mini.moved.connect(lambda pos: self.db.set_setting("mini_window_pos",
+                                                                f"{pos.x()},{pos.y()}"))
+
+        # System-wide Start / Pause shortcut
+        self.hotkey = GlobalHotkey(app, int(self.window.winId()), self._on_hotkey)
+        self._apply_hotkey(show_errors=False)
 
         # Refresh the display 4x a second; the timer itself measures real time.
         self.ticker = QTimer(interval=250)
@@ -97,8 +121,75 @@ class PomodoroApp:
         self._refresh_focus_next()
         self.tasks_tab.refresh()
         self._refresh_display()
+        if self.db.get_bool("mini_window_visible"):
+            self._set_mini_visible(True)
         # Give the tray icon a moment to appear before the first notification.
         QTimer.singleShot(1500, self._maybe_show_daily_summary)
+
+    # ---------- settings, mini timer, shortcut ----------
+
+    def open_settings(self):
+        self.show_window()
+        if not SettingsDialog(self.db, self.window).exec():
+            return
+        self.timer.settings = TimerSettings.from_db(self.db)   # used from the next block
+        self._apply_hotkey(show_errors=True)
+        self._refresh_stats()
+        self._refresh_focus_next()
+        self.tasks_tab.refresh()
+        self._refresh_display()
+        self.window.show_hint("Settings saved.")
+
+    def _apply_hotkey(self, show_errors: bool):
+        if not self.db.get_bool("hotkey_enabled"):
+            self.hotkey.unregister()
+            return
+        shortcut = self.db.get_setting("hotkey")
+        if self.hotkey.register(shortcut):
+            self.window.start_button.setToolTip(f"Start / Pause ({shortcut} from any app)")
+            return
+        message = (f"The shortcut {shortcut} couldn't be set up. Another app may already use "
+                   "it - pick a different one in Settings > Shortcut.")
+        if show_errors:
+            QMessageBox.warning(self.window, "Shortcut not available", message)
+        else:
+            self._notify("Shortcut not available", message)
+
+    def _on_hotkey(self):
+        self.start_or_pause()
+        if self.tray and not self.window.isVisible() and not self.mini.isVisible():
+            t = self.timer
+            state = "Running" if t.running else ("Paused" if t.started else "Ready")
+            self.tray.notify(f"{state}: {t.phase.label}", self._task_label())
+
+    def toggle_mini(self):
+        self._set_mini_visible(not self.mini.isVisible())
+
+    def _set_mini_visible(self, visible: bool):
+        self.db.set_setting("mini_window_visible", visible)
+        if self.tray:
+            self.tray.mini_action.setChecked(visible)
+        if not visible:
+            self.mini.hide()
+            return
+        self.mini.move(self._mini_position())
+        self._refresh_display()
+        self.mini.show()
+
+    def _mini_position(self) -> QPoint:
+        """Saved position if it's still on a screen, else the bottom-right of the main screen."""
+        saved = self.db.get_setting("mini_window_pos")
+        if saved:
+            x, y = (int(v) for v in saved.split(","))
+            if QGuiApplication.screenAt(QPoint(x + 20, y + 20)) is not None:
+                return QPoint(x, y)
+        area = QGuiApplication.primaryScreen().availableGeometry()
+        return QPoint(area.right() - MiniWindow.WIDTH - 24, area.bottom() - MiniWindow.HEIGHT - 24)
+
+    def _task_label(self) -> str:
+        if self.timer.phase == Phase.FOCUS and self.timer.started:
+            return self.focus_task_name
+        return self.window.task_name() or "No task chosen"
 
     # ---------- prioritization ----------
 
@@ -106,7 +197,10 @@ class PomodoroApp:
         """Open tasks, best next task first (see pomodoro/priority.py)."""
         return rank_tasks(self.db.list_tasks("open"), date.today(),
                           self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
-                          self.db.get_working_days())
+                          self.db.get_working_days(), self.weights())
+
+    def weights(self) -> ScoreWeights:
+        return ScoreWeights.from_dict(self.db.get_json("score_weights"))
 
     def _summary(self, ranked: list[ScoredTask]) -> str:
         return day_summary(ranked, date.today(), self.db.get_int("daily_goal"),
@@ -156,7 +250,7 @@ class PomodoroApp:
             self.window.set_task_name(top.title)
             self.window.show_hint(f'Suggested next: "{top.title}" ({top.short_reason()}).')
             return
-        if should_warn(current_id, ranked) is None:
+        if should_warn(current_id, ranked, weights=self.weights()) is None:
             return
         current = self.db.get_task(current_id)["title"]
         choice = self._ask_to_switch("Break over - what next?", current, top)
@@ -198,7 +292,7 @@ class PomodoroApp:
             # Is something more urgent waiting? (Asked only once per task pair per day.)
             ranked = self.rank()
             existing_id = self.db.find_open_task(name)
-            top = should_warn(existing_id, ranked)
+            top = should_warn(existing_id, ranked, weights=self.weights())
             override_of = None
             if top and (date.today(), name.lower(), top.id) not in self._dismissed_warnings:
                 choice = self._ask_to_switch("Higher-priority task waiting", name, top)
@@ -332,6 +426,8 @@ class PomodoroApp:
         self.window.show_state(t.phase, t.running, t.started, remaining, t.duration_seconds())
         if self.tray:
             self.tray.show_state(t.phase, t.running, t.started, remaining)
+        if self.mini.isVisible():
+            self.mini.show_state(t.phase, t.running, t.started, remaining, self._task_label())
 
     def _refresh_stats(self):
         stats = self.db.day_stats()
@@ -417,6 +513,8 @@ class PomodoroApp:
 
     def quit(self):
         self.timer.stop()  # logs a partial block if one is in progress
+        self.hotkey.unregister()
+        self.mini.close()
         self.window.allow_close = True
         self.window.close()
         if self.tray:
@@ -425,12 +523,41 @@ class PomodoroApp:
         self.app.quit()
 
 
+INSTANCE_NAME = "PomodoroTracker-" + (os.environ.get("USERNAME") or "user")
+
+
+def already_running() -> bool:
+    """If the app is already open, ask it to show its window and return True."""
+    socket = QLocalSocket()
+    socket.connectToServer(INSTANCE_NAME)
+    if socket.waitForConnected(300):
+        socket.write(b"show")
+        socket.waitForBytesWritten(300)
+        socket.disconnectFromServer()
+        return True
+    return False
+
+
+def listen_for_second_launch(pomodoro_app: PomodoroApp) -> QLocalServer:
+    """Opening the app again (e.g. from the Start menu) just brings this window forward."""
+    QLocalServer.removeServer(INSTANCE_NAME)   # clean up after a crash
+    server = QLocalServer()
+    server.newConnection.connect(lambda: (server.nextPendingConnection(),
+                                          pomodoro_app.show_window()))
+    server.listen(INSTANCE_NAME)
+    return server
+
+
 def run():
     app = QApplication(sys.argv)
     app.setApplicationName("Pomodoro Tracker")
+    app.setApplicationVersion(__version__)
     app.setQuitOnLastWindowClosed(False)  # keep running in the tray
     app.setStyle("Fusion")
+    if already_running():
+        return 0
 
     pomodoro_app = PomodoroApp(app, Database())
+    server = listen_for_second_launch(pomodoro_app)  # noqa: F841 (keep it alive)
     pomodoro_app.show_window()
     return app.exec()

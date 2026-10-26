@@ -17,7 +17,36 @@ Run the tests:
 .venv\Scripts\python -m unittest discover tests
 ```
 
+## Build the Windows app and installer
+
+```bash
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python build.py
+```
+
+- `dist\PomodoroTracker\PomodoroTracker.exe` - the app, runnable without Python.
+- `installer_output\PomodoroTracker-Setup-1.0.0.exe` - the installer, built only if
+  [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed
+  (`winget install JRSoftware.InnoSetup`). It installs for your user only (no admin),
+  adds Start menu and optional desktop shortcuts, can start the app when you sign in,
+  and has an uninstaller. Your data in `%APPDATA%\PomodoroTracker` is kept on uninstall.
+
 ## What works now
+
+### Settings and convenience (Phase 5)
+
+- **⚙ Settings** (top-right, or the tray menu):
+  - *Timer*: focus/break length, long break (length and how often), auto-start
+    breaks / next pomodoro, sound. Changes apply from the next block.
+  - *Goals*: daily pomodoro goal and working days (used for at-risk deadlines).
+  - *Focus Score*: the points for each priority and due date, and the at-risk bonus,
+    with *Reset to defaults*.
+  - *Shortcut*: a system-wide Start / Pause shortcut (default **Ctrl+Alt+P**) that
+    works from any app.
+- **⧉ Mini timer**: a small always-on-top timer showing time left and the task,
+  with Start/Pause and a button back to the main window. Drag it anywhere; it
+  remembers where you put it and whether it was open.
+- Opening the app a second time just brings the running window forward.
 
 ### Reports and deadlines (Phase 4)
 
@@ -97,7 +126,7 @@ Settings used: `daily_goal` (default 8) and `working_days` (default Mon-Fri).
 - Today's count (🍅 done / daily goal) and minutes focused.
 
 Your data is stored in `%APPDATA%\PomodoroTracker\pomodoro.db` (SQLite).
-Settings such as durations live in its `settings` table; a settings screen comes in Phase 5.
+Settings are changed in the app (⚙ Settings) and stored in the same file.
 
 ## Code map
 
@@ -113,6 +142,10 @@ Settings such as durations live in its `settings` table; a settings screen comes
 | `pomodoro/ui/reports_tab.py` | The Reports tab |
 | `pomodoro/ui/deadlines_tab.py` | The Deadlines tab |
 | `pomodoro/ui/charts.py` | Simple bar and column charts |
+| `pomodoro/ui/settings_dialog.py` | The Settings window |
+| `pomodoro/ui/mini_window.py` | The always-on-top mini timer |
+| `pomodoro/hotkey.py` | System-wide keyboard shortcut (Windows) |
+| `build.py`, `installer/PomodoroTracker.iss` | Build the .exe and the installer |
 | `pomodoro/models.py` | Priorities, statuses, types, default categories, date labels |
 | `pomodoro/ui/main_window.py` | The main window and Timer tab |
 | `pomodoro/ui/tasks_tab.py` | The Tasks tab (list, filters, actions) |
@@ -126,4 +159,6 @@ Settings such as durations live in its `settings` table; a settings screen comes
 2. ~~Tasks: categories, coding/non-coding type, priority, due date, estimate, status~~ (done)
 3. ~~Prioritization: Focus Score, "Focus Next" panel, low-priority warnings, at-risk deadlines~~ (done)
 4. ~~Reports: effort by category, priority and type; deadline board; CSV export~~ (done)
-5. Polish: settings screen, mini window, global hotkey, calendar, installer
+5. ~~Polish: settings screen, mini window, global hotkey, installer~~ (done)
+
+Possible next steps: calendar view of due dates, editing past sessions, dark mode.
