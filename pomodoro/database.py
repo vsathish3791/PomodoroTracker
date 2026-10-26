@@ -75,6 +75,8 @@ DEFAULT_SETTINGS = {
     "auto_start_break": "1",        # break starts automatically after a focus block
     "auto_start_focus": "0",        # next focus block waits for you to press Start
     "daily_goal": "8",
+    "working_days": "0,1,2,3,4",    # Monday=0 ... Sunday=6; used for at-risk deadlines
+    "last_summary_date": "",        # the day the morning summary was last shown
     "sound_enabled": "1",
 }
 
@@ -119,6 +121,9 @@ class Database:
 
     def get_bool(self, key: str) -> bool:
         return self.get_setting(key) == "1"
+
+    def get_working_days(self) -> set[int]:
+        return {int(day) for day in self.get_setting("working_days").split(",") if day.strip()}
 
     def set_setting(self, key: str, value):
         if isinstance(value, bool):
@@ -309,6 +314,15 @@ class Database:
             (task_id,),
         ).fetchone()
         return {"pomodoros": int(row["pomodoros"]), "focus_minutes": round(row["minutes"])}
+
+    def add_override(self, chosen_task_id: int, suggested_task_id: int):
+        """Remember that you chose a different task than the one the app suggested."""
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO overrides (chosen_task_id, suggested_task_id, timestamp) "
+                "VALUES (?, ?, ?)",
+                (chosen_task_id, suggested_task_id, datetime.now().isoformat(timespec="seconds")),
+            )
 
     # ---------- sessions ----------
 

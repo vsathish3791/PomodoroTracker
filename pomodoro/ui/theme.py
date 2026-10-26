@@ -51,6 +51,16 @@ QHeaderView::section { background: white; border: none; border-bottom: 1px solid
                        padding: 6px; font-weight: 600; color: #60646C; }
 QLineEdit, QComboBox { padding: 5px 8px; }
 QPushButton#small { font-size: 12px; padding: 3px 10px; }
+QFrame#focusNext { background: white; border: 1px solid #E8E8EC; border-radius: 8px; }
+QFrame#focusNext QWidget { background: transparent; }
+QLabel#panelTitle { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #8B8D98; }
+QLabel#summary { font-size: 12px; color: #60646C; }
+QLabel#rank { font-size: 12px; font-weight: 700; color: #B9BBC6; }
+QLabel#taskName { font-size: 13px; font-weight: 600; color: #1C2024; }
+QLabel#reason { font-size: 11px; color: #8B8D98; }
+QPushButton#play { color: white; border: none; border-radius: 15px; padding: 0 0 0 2px;
+                   font-size: 14px; }
+QPushButton#play:disabled { background: #E8E8EC; }
 QLabel#phase { font-size: 16px; font-weight: 600; letter-spacing: 1px; }
 QLabel#time  { font-size: 72px; font-weight: 300; color: #1C2024; }
 QLabel#stats { font-size: 13px; color: #60646C; }

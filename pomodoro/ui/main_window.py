@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QHBoxLayout, QLabel, QMain
                                QProgressBar, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from pomodoro.timer import Phase
+from pomodoro.ui.focus_next import FocusNextPanel
 from pomodoro.ui.theme import PHASE_COLORS, STYLESHEET
 
 
@@ -22,8 +23,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Pomodoro Tracker")
-        self.setMinimumSize(420, 460)
-        self.resize(720, 540)
+        self.setMinimumSize(520, 640)
+        self.resize(760, 720)
         self.allow_close = False
 
         # Tabs: "Timer" is built here; the app adds "Tasks" (it needs the database).
@@ -77,7 +78,7 @@ class MainWindow(QMainWindow):
         self.hint_label = QLabel(objectName="hint", alignment=Qt.AlignCenter)
 
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(28, 24, 28, 20)
+        layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(10)
         layout.addWidget(self.task_input)
         layout.addLayout(task_info_row)
@@ -87,9 +88,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress)
         layout.addSpacing(10)
         layout.addLayout(buttons)
-        layout.addStretch()
+        layout.addSpacing(4)
         layout.addWidget(self.stats_label)
         layout.addWidget(self.hint_label)
+        layout.addSpacing(8)
+        self.focus_next = FocusNextPanel()
+        layout.addWidget(self.focus_next)
+        layout.addStretch()
 
     def show_state(self, phase: Phase, running: bool, started: bool,
                    remaining: float, total: float):
@@ -109,7 +114,8 @@ class MainWindow(QMainWindow):
             self.start_button.setText("Start break")
         else:
             self.start_button.setText("Start")
-        self.start_button.setStyleSheet(f"background: {color};")
+        button_color = PHASE_COLORS[Phase.FOCUS] if phase == Phase.IDLE else color
+        self.start_button.setStyleSheet(f"background: {button_color};")
         self.skip_button.setEnabled(phase != Phase.IDLE)
         self.stop_button.setEnabled(started)
 

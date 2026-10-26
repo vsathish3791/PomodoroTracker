@@ -11,7 +11,9 @@ from pomodoro.models import (PRIORITIES, PRIORITY_COLORS, STATUSES, TASK_TYPES, 
                              is_overdue, pomodoro_progress)
 from pomodoro.ui.task_dialog import TaskDialog
 
-COLUMNS = ["Task", "Category", "Type", "Priority", "Due", "🍅 Done / Est", "Status"]
+COLUMNS = ["Task", "Category", "Type", "Priority", "Due", "🍅 Done / Est", "Score", "Status"]
+SCORE_COLUMN = 6
+AT_RISK_COLOR = "#DC6B19"
 DONE_GREY = "#8B8D98"
 
 
@@ -22,6 +24,8 @@ class TasksTab(QWidget):
     def __init__(self, db: Database, parent=None):
         super().__init__(parent)
         self.db = db
+        # Set by the app: returns {task id: ScoredTask} for open tasks (Focus Score etc.).
+        self.rank_lookup = lambda: {}
 
         self.new_button = QPushButton("+ New task", objectName="primary")
         self.new_button.setStyleSheet("background: #E5484D;")
@@ -103,10 +107,15 @@ class TasksTab(QWidget):
         tasks = self.db.list_tasks(show=self.show_filter.currentData(),
                                    category_id=self.category_filter.currentData(),
                                    search=self.search_input.text())
+        ranking = self.rank_lookup()
+        if self.show_filter.currentData() == "open":
+            # Same order as "Focus Next": highest Focus Score first; On Hold tasks last.
+            order = {task_id: n for n, task_id in enumerate(ranking)}
+            tasks.sort(key=lambda t: order.get(t["id"], len(order)))
         self.table.clearSelection()
         self.table.setRowCount(len(tasks))
         for row, task in enumerate(tasks):
-            self._fill_row(row, task)
+            self._fill_row(row, task, ranking.get(task["id"]))
             if task["id"] == selected:
                 self.table.selectRow(row)
 
@@ -114,23 +123,29 @@ class TasksTab(QWidget):
         self.summary_label.setText(f"{len(tasks)} tasks  ·  🍅 {total}")
         self._update_buttons()
 
-    def _fill_row(self, row: int, task: dict):
+    def _fill_row(self, row: int, task: dict, scored=None):
         done = task["status"] == "done"
+        due_text = due_label(task["due_date"])
+        if scored and scored.at_risk:
+            due_text += "  ⚠ at risk"
         cells = [
             task["title"],
             task["category"] or "",
             TASK_TYPES[task["type"]],
             PRIORITIES[task["priority"]],
-            due_label(task["due_date"]),
+            due_text,
             pomodoro_progress(task["pomodoros"], task["estimate_pomodoros"]),
+            str(scored.score) if scored else "",
             STATUSES[task["status"]],
         ]
         for column, text in enumerate(cells):
             item = QTableWidgetItem(text)
             if column == 0:
                 item.setData(Qt.UserRole, task["id"])
+                tooltip = task["title"]
                 if task["notes"]:
-                    item.setToolTip(task["notes"])
+                    tooltip += "\n\n" + task["notes"]
+                item.setToolTip(tooltip)
             if done:
                 item.setForeground(QColor(DONE_GREY))
                 if column == 0:
@@ -147,6 +162,13 @@ class TasksTab(QWidget):
                     item.setFont(font)
             elif column == 4 and is_overdue(task["due_date"]):
                 item.setForeground(QColor("#CE2C31"))
+            elif column == 4 and scored and scored.at_risk:
+                item.setForeground(QColor(AT_RISK_COLOR))
+                item.setToolTip("Not enough pomodoros left before the due date "
+                                "at your daily goal.")
+            elif column == SCORE_COLUMN and scored:
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setToolTip("Focus Score: " + scored.short_reason())
             elif column == 5 and task["estimate_pomodoros"] \
                     and task["pomodoros"] > task["estimate_pomodoros"]:
                 item.setForeground(QColor("#DC6B19"))   # over estimate

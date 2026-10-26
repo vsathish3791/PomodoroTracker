@@ -19,11 +19,40 @@ Run the tests:
 
 ## What works now
 
+### Prioritization (Phase 3)
+
+Every open task gets a **Focus Score** (see `pomodoro/priority.py`):
+
+| Priority | Points | | Due date | Points |
+|---|---|---|---|---|
+| P1 Critical | 40 | | Overdue | 50 |
+| P2 High | 25 | | Today | 40 |
+| P3 Medium | 10 | | Tomorrow | 30 |
+| P4 Low | 0 | | Within 3 days | 20 |
+| | | | Within 7 days | 10 |
+
+**+20 if at risk**: the pomodoros still needed (tasks lined up by due date,
+earliest first) don't fit into your daily goal on the working days left.
+Ties go to the earlier due date, then to the task with less work left.
+
+- **Focus Next** panel on the Timer tab: your top 3 tasks with the reasons
+  and a ▶ button, plus a one-line summary (overdue, due today, at risk, 🍅 needed).
+- The task box is **pre-filled with your top task**; you can still pick another.
+- **Low-priority warning**: starting a task while an urgent one (P1, overdue,
+  due today or at risk) has a higher score asks *Switch* / *Continue anyway* / *Cancel*.
+  "Continue anyway" is logged and not asked again for that pair that day.
+- **After each break** the app asks whether to continue or switch, if
+  something more urgent is waiting.
+- **Daily summary** notification on the first launch of the day.
+- The Tasks tab shows the **Score** and **⚠ at risk**, sorted like Focus Next.
+
+Settings used: `daily_goal` (default 8) and `working_days` (default Mon-Fri).
+
 ### Tasks (Phase 2)
 
 - **Tasks tab**: every task with its category, type (coding / non-coding),
   priority (P1 Critical to P4 Low), due date, 🍅 done vs. estimate, and status.
-  Open tasks are sorted by priority, then due date. Overdue dates show in red.
+  Open tasks are sorted by Focus Score. Overdue dates show in red.
 - **+ New task / Edit** (or double-click a row) opens a form for all the details.
   Type a new category name in the form to create it.
 - **Filter** by Open / Done / All and by category, or search by name and notes.
@@ -61,6 +90,8 @@ Settings such as durations live in its `settings` table; a settings screen comes
 | `pomodoro/timer.py` | The focus/break cycle - plain Python, no UI |
 | `pomodoro/database.py` | SQLite schema, tasks, categories, settings, session log, stats |
 | `pomodoro/app.py` | Connects the timer, database, window and tray |
+| `pomodoro/priority.py` | Focus Score, at-risk deadlines, warnings, daily summary - plain Python |
+| `pomodoro/ui/focus_next.py` | The Focus Next panel |
 | `pomodoro/models.py` | Priorities, statuses, types, default categories, date labels |
 | `pomodoro/ui/main_window.py` | The main window and Timer tab |
 | `pomodoro/ui/tasks_tab.py` | The Tasks tab (list, filters, actions) |
@@ -72,6 +103,6 @@ Settings such as durations live in its `settings` table; a settings screen comes
 
 1. ~~Core timer~~ (done)
 2. ~~Tasks: categories, coding/non-coding type, priority, due date, estimate, status~~ (done)
-3. Prioritization: Focus Score, "Focus Next" panel, low-priority warnings, at-risk deadlines
+3. ~~Prioritization: Focus Score, "Focus Next" panel, low-priority warnings, at-risk deadlines~~ (done)
 4. Reports: effort by category, priority and type; deadline board; CSV export
 5. Polish: settings screen, mini window, global hotkey, calendar, installer
