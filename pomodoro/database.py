@@ -13,7 +13,9 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from pomodoro.models import DEFAULT_CATEGORIES, DEFAULT_PRIORITY, PRIORITIES, STATUSES, TASK_TYPES
+from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
+                             EXTRA_CATEGORY_COLOR, OLD_DEFAULT_COLORS, PRIORITIES, STATUSES,
+                             TASK_TYPES)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -142,6 +144,23 @@ class Database:
             with self.conn:
                 self.conn.executemany(
                     "INSERT INTO categories (name, color) VALUES (?, ?)", DEFAULT_CATEGORIES)
+            return
+        # Upgrade colours from older versions: the old defaults, and categories
+        # created before new ones got a palette colour.
+        new_colors = dict(DEFAULT_CATEGORIES)
+        with self.conn:
+            for name, old in OLD_DEFAULT_COLORS.items():
+                self.conn.execute("UPDATE categories SET color = ? WHERE name = ? AND color = ?",
+                                  (new_colors[name], name, old))
+            for row in self.conn.execute(
+                    "SELECT id FROM categories WHERE color = '#888888' ORDER BY id").fetchall():
+                self.conn.execute("UPDATE categories SET color = ? WHERE id = ?",
+                                  (self._next_category_color(), row["id"]))
+
+    def _next_category_color(self) -> str:
+        """The first palette colour no category uses yet (grey once all 8 are taken)."""
+        used = {row["color"].lower() for row in self.conn.execute("SELECT color FROM categories")}
+        return next((c for c in CATEGORY_PALETTE if c.lower() not in used), EXTRA_CATEGORY_COLOR)
 
     def list_categories(self) -> list[dict]:
         rows = self.conn.execute("SELECT id, name, color FROM categories ORDER BY name").fetchall()
@@ -157,8 +176,8 @@ class Database:
         if row:
             return row["id"]
         with self.conn:
-            return self.conn.execute(
-                "INSERT INTO categories (name) VALUES (?)", (name,)).lastrowid
+            return self.conn.execute("INSERT INTO categories (name, color) VALUES (?, ?)",
+                                     (name, self._next_category_color())).lastrowid
 
     # ---------- tasks ----------
 

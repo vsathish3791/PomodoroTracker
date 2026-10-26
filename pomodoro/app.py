@@ -11,6 +11,8 @@ from pomodoro.models import PRIORITIES, due_label, pomodoro_progress
 from pomodoro.priority import ScoredTask, day_summary, rank_tasks, should_warn
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
 from pomodoro.ui.main_window import MainWindow
+from pomodoro.ui.deadlines_tab import DeadlinesTab
+from pomodoro.ui.reports_tab import ReportsTab
 from pomodoro.ui.tasks_tab import TasksTab
 from pomodoro.ui.theme import PHASE_COLORS, make_icon
 from pomodoro.ui.tray import TrayIcon
@@ -58,6 +60,18 @@ class PomodoroApp:
         self.tasks_tab.start_requested.connect(self.start_task)
         self.tasks_tab.tasks_changed.connect(self._on_tasks_changed)
         self.window.tabs.addTab(self.tasks_tab, "Tasks")
+
+        self.deadlines_tab = DeadlinesTab()
+        self.deadlines_tab.plan_provider = lambda: (
+            self.rank(), self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
+            self.db.get_working_days())
+        self.deadlines_tab.start_requested.connect(self.start_task)
+        self.window.tabs.addTab(self.deadlines_tab, "Deadlines")
+
+        self.reports_tab = ReportsTab(db)
+        self.window.tabs.addTab(self.reports_tab, "Reports")
+        # Reports and Deadlines are redrawn when you open them.
+        self.window.tabs.currentChanged.connect(lambda _: self._refresh_open_tab())
 
         self.tray = None
         if QSystemTrayIcon.isSystemTrayAvailable():
@@ -357,10 +371,16 @@ class PomodoroApp:
         self.window.show_task_info("  ·  ".join(parts),
                                    can_mark_done=task["status"] != "done")
 
+    def _refresh_open_tab(self):
+        current = self.window.tabs.currentWidget()
+        if current in (self.reports_tab, self.deadlines_tab):
+            current.refresh()
+
     def _refresh_focus_next(self):
         ranked = self.rank()
         self.window.focus_next.show_tasks(ranked, self._summary(ranked))
         self.window.focus_next.set_start_enabled(not self._focus_in_progress())
+        self._refresh_open_tab()
 
     def _on_tasks_changed(self):
         self.window.set_task_choices(self.db.recent_open_tasks())

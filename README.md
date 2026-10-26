@@ -19,6 +19,23 @@ Run the tests:
 
 ## What works now
 
+### Reports and deadlines (Phase 4)
+
+- **Reports tab**: pick a period (today, this week, last 7 days, this month,
+  last 30 days or custom dates) and show pomodoros or hours.
+  - Totals: pomodoros (and daily average), focus time, tasks done (on time / late),
+    and how often you skipped the app's suggestion.
+  - Effort **by category**, **coding vs non-coding** and **by priority**.
+  - **Daily trend** with your daily goal as a dashed line. Hover a bar for details.
+  - **Estimate vs actual** for finished tasks.
+  - **Export sessions CSV** (every focus/break block in the period, with task
+    details) and **Export tasks CSV** (all tasks with totals). Opens in Excel.
+- **Deadlines tab**: open tasks grouped as Overdue / Today / This week / Later /
+  No date, with ▶ to start one, plus a **7-day workload check**: pomodoros due
+  each day vs. what your daily goal allows, flagging overloaded days.
+- Category colours come from a colour-blind-checked palette; each category keeps
+  its colour everywhere.
+
 ### Prioritization (Phase 3)
 
 Every open task gets a **Focus Score** (see `pomodoro/priority.py`):
@@ -92,6 +109,10 @@ Settings such as durations live in its `settings` table; a settings screen comes
 | `pomodoro/app.py` | Connects the timer, database, window and tray |
 | `pomodoro/priority.py` | Focus Score, at-risk deadlines, warnings, daily summary - plain Python |
 | `pomodoro/ui/focus_next.py` | The Focus Next panel |
+| `pomodoro/reports.py` | Report numbers, deadline board, workload, CSV export - plain Python |
+| `pomodoro/ui/reports_tab.py` | The Reports tab |
+| `pomodoro/ui/deadlines_tab.py` | The Deadlines tab |
+| `pomodoro/ui/charts.py` | Simple bar and column charts |
 | `pomodoro/models.py` | Priorities, statuses, types, default categories, date labels |
 | `pomodoro/ui/main_window.py` | The main window and Timer tab |
 | `pomodoro/ui/tasks_tab.py` | The Tasks tab (list, filters, actions) |
@@ -104,5 +125,5 @@ Settings such as durations live in its `settings` table; a settings screen comes
 1. ~~Core timer~~ (done)
 2. ~~Tasks: categories, coding/non-coding type, priority, due date, estimate, status~~ (done)
 3. ~~Prioritization: Focus Score, "Focus Next" panel, low-priority warnings, at-risk deadlines~~ (done)
-4. Reports: effort by category, priority and type; deadline board; CSV export
+4. ~~Reports: effort by category, priority and type; deadline board; CSV export~~ (done)
 5. Polish: settings screen, mini window, global hotkey, calendar, installer

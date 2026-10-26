@@ -22,16 +22,25 @@ TASK_TYPES = {
     "non-coding": "Non-coding",
 }
 
+# Category colours, in a fixed order. This is a colour-blind-checked chart palette:
+# neighbouring colours stay distinguishable. New categories take the next free colour;
+# after all 8 are used, extra categories are grey.
+CATEGORY_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+                    "#e87ba4", "#008300", "#6250d6", "#e34948"]
+EXTRA_CATEGORY_COLOR = "#8B8D98"
+
 # Created the first time the app runs; you can add more from the task dialog.
-DEFAULT_CATEGORIES = [
-    ("Development", "#E5484D"),
-    ("Code Review", "#8E4EC6"),
-    ("Meetings", "#F76B15"),
-    ("Learning", "#30A46C"),
-    ("Documentation", "#0090FF"),
-    ("Planning", "#12A594"),
-    ("Admin", "#8B8D98"),
-]
+DEFAULT_CATEGORIES = list(zip(
+    ["Development", "Code Review", "Meetings", "Learning", "Documentation", "Planning", "Admin"],
+    CATEGORY_PALETTE,
+))
+
+# Colours used by version 1 of the app, so they can be upgraded to the palette above.
+OLD_DEFAULT_COLORS = {
+    "Development": "#E5484D", "Code Review": "#8E4EC6", "Meetings": "#F76B15",
+    "Learning": "#30A46C", "Documentation": "#0090FF", "Planning": "#12A594",
+    "Admin": "#8B8D98",
+}
 
 PRIORITY_COLORS = {1: "#CE2C31", 2: "#DC6B19", 3: "#60646C", 4: "#8B8D98"}
 
