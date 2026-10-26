@@ -35,6 +35,7 @@ class FocusNextPanel(QFrame):
         while self.rows.count():
             item = self.rows.takeAt(0)
             if item.widget():
+                item.widget().hide()          # hide now; delete once any click on it has finished
                 item.widget().deleteLater()
         self._buttons = []
 

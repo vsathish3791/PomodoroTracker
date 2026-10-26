@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Pomodoro Tracker")
         self.setMinimumSize(520, 640)
-        self.resize(760, 720)
+        self.resize(1100, 760)
         self.allow_close = False
 
         # Tabs: "Timer" is built here; the app adds "Tasks" (it needs the database).

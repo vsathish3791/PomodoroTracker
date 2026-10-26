@@ -88,6 +88,7 @@ class DeadlinesTab(QWidget):
             while cards.count():
                 item = cards.takeAt(0)
                 if item.widget():
+                    item.widget().hide()          # hide now; delete once any click on it has finished
                     item.widget().deleteLater()
             tasks = board[name]
             self.headers[name].setText(f"{name.upper()}  ·  {len(tasks)}")

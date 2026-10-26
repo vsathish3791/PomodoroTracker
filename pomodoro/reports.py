@@ -38,25 +38,29 @@ _FOCUS_IN_RANGE = """
     FROM sessions s
     LEFT JOIN tasks t ON t.id = s.task_id
     LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN projects p ON p.id = t.project_id
     WHERE s.kind = 'focus' AND s.start_time >= ? AND s.start_time < ?
 """
 
 
 def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRow]:
-    """Effort split by 'category', 'type' or 'priority'.
+    """Effort split by 'category', 'project', 'type' or 'priority'.
 
-    Category rows are sorted biggest first; type and priority keep their natural order.
+    Category and project rows are sorted biggest first; type and priority keep their
+    natural order.
     Time not linked to a task (e.g. a deleted task) shows as 'Unassigned'.
     """
     # '~unassigned' = no task at all (deleted task); '~none' = task without a category.
     column = {
         "category": "CASE WHEN t.id IS NULL THEN '~unassigned' "
                     "WHEN c.id IS NULL THEN '~none' ELSE c.name END",
+        "project": "CASE WHEN t.id IS NULL THEN '~unassigned' "
+                   "WHEN p.id IS NULL THEN '~none' ELSE p.name END",
         "type": "CASE WHEN t.id IS NULL THEN '~unassigned' ELSE t.type END",
         "priority": "CASE WHEN t.id IS NULL THEN '~unassigned' ELSE t.priority END",
     }[group]
     rows = db.conn.execute(
-        f"SELECT {column} AS key, MAX(c.color) AS color, "
+        f"SELECT {column} AS key, MAX({'p' if group == 'project' else 'c'}.color) AS color, "
         f"       COALESCE(SUM(s.completed), 0) AS pomodoros, SUM(s.duration_min) AS minutes "
         f"{_FOCUS_IN_RANGE} GROUP BY key",
         _range_params(start, end),
@@ -67,15 +71,16 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
         key, color = row["key"], None
         if key == "~unassigned":
             label = UNASSIGNED
-        elif group == "category":
-            label, color = ("No category", None) if key == "~none" else (key, row["color"])
+        elif group in ("category", "project"):
+            empty = "No category" if group == "category" else "No project"
+            label, color = (empty, None) if key == "~none" else (key, row["color"])
         elif group == "type":
             label = TASK_TYPES[key]
         else:
             label = PRIORITIES[int(key)]
         result.append(EffortRow(label, int(row["pomodoros"]), round(row["minutes"], 1), color))
 
-    if group == "category":
+    if group in ("category", "project"):
         result.sort(key=lambda r: (-r.minutes, r.label))
     elif group == "type":
         order = list(TASK_TYPES.values()) + [UNASSIGNED]

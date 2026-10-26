@@ -21,6 +21,7 @@ from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
 from pomodoro.ui.reports_tab import ReportsTab
 from pomodoro.ui.tasks_tab import TasksTab
+from pomodoro.ui.todo_tab import TodoTab
 from pomodoro.ui.theme import PHASE_COLORS, make_icon
 from pomodoro.ui.tray import TrayIcon
 
@@ -67,6 +68,14 @@ class PomodoroApp:
         self.tasks_tab.start_requested.connect(self.start_task)
         self.tasks_tab.tasks_changed.connect(self._on_tasks_changed)
         self.window.tabs.addTab(self.tasks_tab, "Tasks")
+
+        # Focus To-Do style list view, right after the Timer tab
+        self.todo_tab = TodoTab(db)
+        self.todo_tab.score_order = lambda: {s.id: n for n, s in enumerate(self.rank())}
+        self.todo_tab.start_requested.connect(self.start_task)
+        self.todo_tab.tasks_changed.connect(self._on_tasks_changed)
+        self.todo_tab.tasks_changed.connect(self.tasks_tab.refresh)
+        self.window.tabs.insertTab(1, self.todo_tab, "To-Do")
 
         self.deadlines_tab = DeadlinesTab()
         self.deadlines_tab.plan_provider = lambda: (
@@ -469,7 +478,7 @@ class PomodoroApp:
 
     def _refresh_open_tab(self):
         current = self.window.tabs.currentWidget()
-        if current in (self.reports_tab, self.deadlines_tab):
+        if current in (self.reports_tab, self.deadlines_tab, self.todo_tab):
             current.refresh()
 
     def _refresh_focus_next(self):

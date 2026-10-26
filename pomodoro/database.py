@@ -25,6 +25,13 @@ CREATE TABLE IF NOT EXISTS categories (
     color TEXT NOT NULL DEFAULT '#888888'
 );
 
+CREATE TABLE IF NOT EXISTS projects (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    color      TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     title              TEXT NOT NULL,
@@ -105,8 +112,19 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self._seed_settings()
         self._seed_categories()
+
+    def _migrate(self):
+        """Upgrade databases made by older versions of the app."""
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(tasks)")}
+        with self.conn:
+            if "project_id" not in columns:   # projects were added in v1.1
+                self.conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 
     def close(self):
         self.conn.close()
@@ -191,10 +209,69 @@ class Database:
             return self.conn.execute("INSERT INTO categories (name, color) VALUES (?, ?)",
                                      (name, self._next_category_color())).lastrowid
 
+    # ---------- projects ----------
+
+    def list_projects(self) -> list[dict]:
+        """Projects in the order they were created."""
+        rows = self.conn.execute("SELECT id, name, color FROM projects ORDER BY id").fetchall()
+        return [dict(row) for row in rows]
+
+    def get_project(self, project_id: int) -> dict | None:
+        row = self.conn.execute("SELECT id, name, color FROM projects WHERE id = ?",
+                                (project_id,)).fetchone()
+        return dict(row) if row else None
+
+    def _clean_project_name(self, name: str, project_id: int | None = None) -> str:
+        name = " ".join((name or "").split())
+        if not name:
+            raise ValueError("Project name is required")
+        clash = self.conn.execute("SELECT id FROM projects WHERE name = ? COLLATE NOCASE",
+                                  (name,)).fetchone()
+        if clash and clash["id"] != project_id:
+            raise ValueError(f'There is already a project called "{name}"')
+        return name
+
+    def _next_project_color(self) -> str:
+        used = {row["color"].lower() for row in self.conn.execute("SELECT color FROM projects")}
+        return next((c for c in CATEGORY_PALETTE if c.lower() not in used), EXTRA_CATEGORY_COLOR)
+
+    def create_project(self, name: str, color: str | None = None) -> int:
+        name = self._clean_project_name(name)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO projects (name, color, created_at) VALUES (?, ?, ?)",
+                (name, color or self._next_project_color(),
+                 datetime.now().isoformat(timespec="seconds"))).lastrowid
+
+    def rename_project(self, project_id: int, name: str):
+        name = self._clean_project_name(name, project_id)
+        with self.conn:
+            self.conn.execute("UPDATE projects SET name = ? WHERE id = ?", (name, project_id))
+
+    def set_project_color(self, project_id: int, color: str):
+        with self.conn:
+            self.conn.execute("UPDATE projects SET color = ? WHERE id = ?", (color, project_id))
+
+    def delete_project(self, project_id: int):
+        """Delete a project. Its tasks are kept, just no longer in a project."""
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET project_id = NULL WHERE project_id = ?",
+                              (project_id,))
+            self.conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+    def get_or_create_project(self, name: str) -> int | None:
+        """Project id for this name (case-insensitive); creates it if new. Blank -> None."""
+        name = " ".join((name or "").split())
+        if not name:
+            return None
+        row = self.conn.execute("SELECT id FROM projects WHERE name = ? COLLATE NOCASE",
+                                (name,)).fetchone()
+        return row["id"] if row else self.create_project(name)
+
     # ---------- tasks ----------
 
     # Columns that create_task/update_task are allowed to set.
-    TASK_FIELDS = ("title", "category_id", "type", "priority", "due_date",
+    TASK_FIELDS = ("title", "category_id", "project_id", "type", "priority", "due_date",
                    "estimate_pomodoros", "status", "notes")
 
     def _clean_task_fields(self, fields: dict) -> dict:
@@ -258,10 +335,12 @@ class Database:
 
     _TASK_SELECT = """
         SELECT t.*, c.name AS category, c.color AS category_color,
+               p.name AS project, p.color AS project_color,
                COALESCE(SUM(CASE WHEN s.kind = 'focus' THEN s.completed END), 0) AS pomodoros,
                COALESCE(SUM(CASE WHEN s.kind = 'focus' THEN s.duration_min END), 0) AS focus_minutes
         FROM tasks t
         LEFT JOIN categories c ON c.id = t.category_id
+        LEFT JOIN projects p ON p.id = t.project_id
         LEFT JOIN sessions s ON s.task_id = t.id
     """
 
@@ -271,7 +350,7 @@ class Database:
         return dict(row) if row else None
 
     def list_tasks(self, show: str = "open", category_id: int | None = None,
-                   search: str = "") -> list[dict]:
+                   search: str = "", project_id: int | None = None) -> list[dict]:
         """Tasks with their pomodoro totals.
 
         show: 'open' (not done), 'done', or 'all'.
@@ -285,6 +364,9 @@ class Database:
         if category_id is not None:
             where.append("t.category_id = ?")
             params.append(category_id)
+        if project_id is not None:
+            where.append("t.project_id = ?")
+            params.append(project_id)
         if search.strip():
             where.append("(t.title LIKE ? OR t.notes LIKE ?)")
             params += [f"%{search.strip()}%"] * 2
@@ -369,6 +451,18 @@ class Database:
                  end.isoformat(timespec="seconds"), duration_min, int(completed)),
             )
         return cur.lastrowid
+
+    def focus_minutes_by_task(self, day: date) -> dict[int, float]:
+        """{task id: focus minutes logged that day}."""
+        start = datetime.combine(day, datetime.min.time())
+        rows = self.conn.execute(
+            "SELECT task_id, SUM(duration_min) AS minutes FROM sessions "
+            "WHERE kind = 'focus' AND task_id IS NOT NULL AND start_time >= ? AND start_time < ? "
+            "GROUP BY task_id",
+            (start.isoformat(timespec="seconds"),
+             (start + timedelta(days=1)).isoformat(timespec="seconds")),
+        ).fetchall()
+        return {row["task_id"]: row["minutes"] for row in rows}
 
     def day_stats(self, day: date | None = None) -> dict:
         """Pomodoros completed and focus minutes (incl. partial blocks) for one day."""

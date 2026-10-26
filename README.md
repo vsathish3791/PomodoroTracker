@@ -25,13 +25,34 @@ Run the tests:
 ```
 
 - `dist\PomodoroTracker\PomodoroTracker.exe` - the app, runnable without Python.
-- `installer_output\PomodoroTracker-Setup-1.0.0.exe` - the installer, built only if
+- `installer_output\PomodoroTracker-Setup-1.1.0.exe` - the installer, built only if
   [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed
   (`winget install JRSoftware.InnoSetup`). It installs for your user only (no admin),
   adds Start menu and optional desktop shortcuts, can start the app when you sign in,
   and has an uninstaller. Your data in `%APPDATA%\PomodoroTracker` is kept on uninstall.
 
 ## What works now
+
+### Projects and the To-Do view (v1.1)
+
+- **Projects**: group tasks by what they're for (Work, Study, Finance…). Create one
+  with **+ New project**, or type a new name in a task's *Project* box. Right-click a
+  project to rename it, change its colour, or delete it (its tasks are kept).
+- **To-Do tab**, in the style of Focus To-Do:
+  - Sidebar with **Today** (due today or overdue), **Tomorrow**, **This Week**,
+    **Planned** (any due date), **Completed** and **Tasks** (all open), then your
+    projects - each with its task count and estimated time left.
+  - Totals for the list: **Estimated Time** (pomodoros left x focus length),
+    **Tasks to be Completed**, **Elapsed Time** today and **Completed Tasks** today.
+  - **Quick add**: type a task, click the tomatoes to set the estimate, press Enter.
+    It lands in the list you're viewing (due today in Today, in the project in a project).
+  - Each task: ○ tick to complete, ▶ to start a pomodoro, ●○ pomodoros done vs.
+    estimated, priority flag, project, and the due date (red when due or overdue).
+    Double-click to edit; right-click to move to a project, set the due date, or delete.
+  - Smart lists are grouped by project. Sort by Focus Score, due date, priority,
+    name or newest. "Completed today" is shown at the bottom. Search finds any task.
+- Projects also appear in the task form, the Tasks table (column and filter) and
+  Reports (**Effort by project**).
 
 ### Settings and convenience (Phase 5)
 
@@ -142,6 +163,8 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/ui/reports_tab.py` | The Reports tab |
 | `pomodoro/ui/deadlines_tab.py` | The Deadlines tab |
 | `pomodoro/ui/charts.py` | Simple bar and column charts |
+| `pomodoro/lists.py` | What each To-Do list contains, its totals, sorting, grouping |
+| `pomodoro/ui/todo_tab.py` | The To-Do tab (sidebar, totals, quick add, task rows) |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |
 | `pomodoro/hotkey.py` | System-wide keyboard shortcut (Windows) |

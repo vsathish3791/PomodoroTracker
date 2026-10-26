@@ -11,7 +11,9 @@ from pomodoro.models import (PRIORITIES, PRIORITY_COLORS, STATUSES, TASK_TYPES, 
                              is_overdue, pomodoro_progress)
 from pomodoro.ui.task_dialog import TaskDialog
 
-COLUMNS = ["Task", "Category", "Type", "Priority", "Due", "🍅 Done / Est", "Score", "Status"]
+COLUMNS = ["Task", "Category", "Type", "Priority", "Due", "🍅 Done / Est", "Score", "Status",
+           "Project"]
+PROJECT_COLUMN = 8
 SCORE_COLUMN = 6
 AT_RISK_COLOR = "#DC6B19"
 DONE_GREY = "#8B8D98"
@@ -34,6 +36,7 @@ class TasksTab(QWidget):
         self.show_filter.addItem("Done", "done")
         self.show_filter.addItem("All", "all")
         self.category_filter = QComboBox()
+        self.project_filter = QComboBox()
         self.search_input = QLineEdit(placeholderText="Search…", clearButtonEnabled=True)
 
         toolbar = QHBoxLayout()
@@ -41,6 +44,7 @@ class TasksTab(QWidget):
         toolbar.addSpacing(8)
         toolbar.addWidget(self.show_filter)
         toolbar.addWidget(self.category_filter)
+        toolbar.addWidget(self.project_filter)
         toolbar.addWidget(self.search_input, 1)
 
         self.table = QTableWidget(0, len(COLUMNS))
@@ -84,6 +88,7 @@ class TasksTab(QWidget):
         self.table.itemSelectionChanged.connect(self._update_buttons)
         self.show_filter.currentIndexChanged.connect(self.refresh)
         self.category_filter.currentIndexChanged.connect(self.refresh)
+        self.project_filter.currentIndexChanged.connect(self.refresh)
         self.search_input.textChanged.connect(self.refresh)
 
         self._reload_categories()
@@ -102,11 +107,22 @@ class TasksTab(QWidget):
         self.category_filter.setCurrentIndex(max(index, 0))
         self.category_filter.blockSignals(False)
 
+        current = self.project_filter.currentData()
+        self.project_filter.blockSignals(True)
+        self.project_filter.clear()
+        self.project_filter.addItem("All projects", None)
+        for project in self.db.list_projects():
+            self.project_filter.addItem(project["name"], project["id"])
+        index = self.project_filter.findData(current)
+        self.project_filter.setCurrentIndex(max(index, 0))
+        self.project_filter.blockSignals(False)
+
     def refresh(self):
         selected = self.selected_task_id()
         tasks = self.db.list_tasks(show=self.show_filter.currentData(),
                                    category_id=self.category_filter.currentData(),
-                                   search=self.search_input.text())
+                                   search=self.search_input.text(),
+                                   project_id=self.project_filter.currentData())
         ranking = self.rank_lookup()
         if self.show_filter.currentData() == "open":
             # Same order as "Focus Next": highest Focus Score first; On Hold tasks last.
@@ -137,6 +153,7 @@ class TasksTab(QWidget):
             pomodoro_progress(task["pomodoros"], task["estimate_pomodoros"]),
             str(scored.score) if scored else "",
             STATUSES[task["status"]],
+            task["project"] or "",
         ]
         for column, text in enumerate(cells):
             item = QTableWidgetItem(text)
@@ -166,6 +183,8 @@ class TasksTab(QWidget):
                 item.setForeground(QColor(AT_RISK_COLOR))
                 item.setToolTip("Not enough pomodoros left before the due date "
                                 "at your daily goal.")
+            elif column == PROJECT_COLUMN and task["project_color"]:
+                item.setForeground(QColor(task["project_color"]))
             elif column == SCORE_COLUMN and scored:
                 item.setTextAlignment(Qt.AlignCenter)
                 item.setToolTip("Focus Score: " + scored.short_reason())

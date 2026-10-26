@@ -74,6 +74,46 @@ QLabel#boardHeader { font-size: 11px; font-weight: 700; letter-spacing: 1px; col
                      background: transparent; }
 QFrame#taskCard { background: white; border: 1px solid #E8E8EC; border-radius: 6px; }
 QFrame#taskCard QLabel { background: transparent; border: none; }
+QFrame#todoSidebar { background: #F7F7F8; border-right: 1px solid #E8E8EC; }
+QLineEdit#todoSearch { background: #ECECEF; border: none; border-radius: 6px; padding: 7px 10px;
+                       font-size: 13px; }
+QListWidget#todoNav { background: transparent; border: none; outline: none; }
+QListWidget#todoNav::item { border-radius: 6px; margin: 1px 0; }
+QListWidget#todoNav::item:selected { background: #E6E6EA; }
+QListWidget#todoNav::item:hover:!selected { background: #EFEFF2; }
+QListWidget#todoNav QLabel { background: transparent; }
+QLabel#navName { font-size: 14px; color: #1C2024; }
+QLabel#navMeta { font-size: 12px; color: #8B8D98; }
+QLabel#navHeader { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #8B8D98; }
+QPushButton#todoNewProject { text-align: left; border: none; background: transparent;
+                             color: #60646C; font-size: 13px; padding: 6px 10px; }
+QPushButton#todoNewProject:hover { background: #EFEFF2; }
+QWidget#todoMain, QWidget#todoList { background: #F2F2F4; }
+QLabel#todoHeading { font-size: 24px; font-weight: 600; color: #1C2024; }
+QToolButton#todoSort { border: none; background: white; border-radius: 6px; font-size: 16px;
+                       padding: 4px 10px; color: #60646C; }
+QToolButton#todoSort::menu-indicator { image: none; }
+QFrame#todoCard { background: white; border-radius: 8px; border: none; }
+QFrame#todoCard QWidget, QFrame#todoCard QLabel { background: transparent; }
+QLabel#todoStatValue { font-size: 32px; font-weight: 300; color: #E5484D; }
+QLabel#todoStatCaption { font-size: 12px; color: #8B8D98; }
+QLabel#todoPlus { font-size: 22px; color: #8B8D98; padding-right: 4px; }
+QLineEdit#todoAdd { border: none; background: transparent; font-size: 14px; padding: 8px 2px; }
+QToolButton#estimateDot { border: none; background: transparent; font-size: 16px; padding: 0 1px; }
+QFrame#todoRow { background: white; border-radius: 8px; }
+QFrame#todoRow:hover { background: #FBFBFC; }
+QFrame#todoRow QLabel { background: transparent; }
+QLabel#todoTitle { font-size: 14px; color: #1C2024; }
+QLabel#todoMeta { font-size: 12px; }
+QLabel#todoDue { font-size: 12px; color: #8B8D98; }
+QLabel#todoGroup { font-size: 13px; color: #1C2024; background: transparent; }
+QLabel#todoEmpty { font-size: 13px; color: #8B8D98; padding: 24px; background: transparent; }
+QToolButton#rowPlay { border: none; border-radius: 12px; background: #FFE5E5; color: #E5484D;
+                      font-size: 10px; padding-left: 2px; }
+QToolButton#rowPlay:hover { background: #E5484D; color: white; }
+QToolButton#rowPlay:disabled { background: #F0F0F3; color: #C9CAD1; }
+QPushButton#todoDoneToggle { text-align: left; border: none; background: transparent;
+                             color: #60646C; font-size: 13px; padding: 10px 4px 2px 4px; }
 QLabel#phase { font-size: 16px; font-weight: 600; letter-spacing: 1px; }
 QLabel#time  { font-size: 72px; font-weight: 300; color: #1C2024; }
 QLabel#stats { font-size: 13px; color: #60646C; }
