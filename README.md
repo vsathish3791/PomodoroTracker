@@ -25,13 +25,26 @@ Run the tests:
 ```
 
 - `dist\PomodoroTracker\PomodoroTracker.exe` - the app, runnable without Python.
-- `installer_output\PomodoroTracker-Setup-1.1.1.exe` - the installer, built only if
+- `installer_output\PomodoroTracker-Setup-1.2.0.exe` - the installer, built only if
   [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed
   (`winget install JRSoftware.InnoSetup`). It installs for your user only (no admin),
   adds Start menu and optional desktop shortcuts, can start the app when you sign in,
   and has an uninstaller. Your data in `%APPDATA%\PomodoroTracker` is kept on uninstall.
 
 ## What works now
+
+### Your own categories and types (v1.2)
+
+**⚙ Settings → Categories & Types** has two editable lists:
+
+- **Categories** (the kind of work) and **Types** (a broader split, e.g. Coding,
+  Non-coding, Research): **add**, **rename**, change **colour** (8 chart-safe colours or a
+  custom one), **delete** and reorder with **↑ ↓**. Each row shows how many tasks use it.
+- Renaming updates every task. Deleting asks where its tasks should go
+  (for categories, "No category" is also allowed). You always keep at least one type.
+- The first type in the list is the default for new tasks.
+- Reports show **Effort by type** for all your types, in their colours.
+- Older databases are upgraded automatically when the app starts.
 
 ### Projects and the To-Do view (v1.1)
 
@@ -171,6 +184,7 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/lists.py` | What each To-Do list contains, its totals, sorting, grouping |
 | `pomodoro/ui/todo_tab.py` | The To-Do tab (sidebar, totals, quick add, task rows) |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
+| `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |
 | `pomodoro/hotkey.py` | System-wide keyboard shortcut (Windows) |
 | `build.py`, `installer/PomodoroTracker.iss` | Build the .exe and the installer |

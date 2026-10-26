@@ -17,10 +17,9 @@ STATUSES = {
     "done": "Done",
 }
 
-TASK_TYPES = {
-    "coding": "Coding",
-    "non-coding": "Non-coding",
-}
+# The types a new database starts with (key, name). You can add, rename and
+# remove types in Settings; tasks store the key, so renaming never breaks them.
+DEFAULT_TYPES = [("coding", "Coding"), ("non-coding", "Non-coding")]
 
 # Category colours, in a fixed order. This is a colour-blind-checked chart palette:
 # neighbouring colours stay distinguishable. New categories take the next free colour;

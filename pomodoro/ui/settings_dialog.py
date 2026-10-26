@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout
 
 from pomodoro.database import Database
 from pomodoro.priority import DEFAULT_WEIGHTS, ScoreWeights
+from pomodoro.ui.list_editor import editor_page
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -36,11 +37,13 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.db = db
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(520)
 
         tabs = QTabWidget()
         tabs.addTab(self._timer_page(), "Timer")
         tabs.addTab(self._goals_page(), "Goals")
+        self.lists_page = editor_page(db)
+        tabs.addTab(self.lists_page, "Categories && Types")
         tabs.addTab(self._score_page(), "Focus Score")
         tabs.addTab(self._shortcut_page(), "Shortcut")
 

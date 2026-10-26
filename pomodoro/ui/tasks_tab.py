@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QHeade
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from pomodoro.database import Database
-from pomodoro.models import (PRIORITIES, PRIORITY_COLORS, STATUSES, TASK_TYPES, due_label,
+from pomodoro.models import (PRIORITIES, PRIORITY_COLORS, STATUSES, due_label,
                              is_overdue, pomodoro_progress)
 from pomodoro.ui.task_dialog import TaskDialog
 
@@ -123,6 +123,7 @@ class TasksTab(QWidget):
                                    category_id=self.category_filter.currentData(),
                                    search=self.search_input.text(),
                                    project_id=self.project_filter.currentData())
+        self.type_names = self.db.type_names()
         ranking = self.rank_lookup()
         if self.show_filter.currentData() == "open":
             # Same order as "Focus Next": highest Focus Score first; On Hold tasks last.
@@ -147,7 +148,7 @@ class TasksTab(QWidget):
         cells = [
             task["title"],
             task["category"] or "",
-            TASK_TYPES[task["type"]],
+            self.type_names.get(task["type"], task["type"]),
             PRIORITIES[task["priority"]],
             due_text,
             pomodoro_progress(task["pomodoros"], task["estimate_pomodoros"]),

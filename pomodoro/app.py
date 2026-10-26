@@ -146,13 +146,18 @@ class PomodoroApp:
 
     def open_settings(self):
         self.show_window()
-        if not SettingsDialog(self.db, self.window).exec():
+        saved = SettingsDialog(self.db, self.window).exec()
+        # Categories & Types are saved as you edit them, so refresh even after Cancel.
+        self.tasks_tab._reload_categories()
+        self.tasks_tab.refresh()
+        self.todo_tab.refresh()
+        self._on_tasks_changed()
+        if not saved:
             return
         self.timer.settings = TimerSettings.from_db(self.db)   # used from the next block
         self._apply_hotkey(show_errors=True)
         self._refresh_stats()
         self._refresh_focus_next()
-        self.tasks_tab.refresh()
         self._refresh_display()
         self.window.show_hint("Settings saved.")
 

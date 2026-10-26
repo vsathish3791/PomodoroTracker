@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from pomodoro.database import Database
-from pomodoro.models import PRIORITIES, STATUSES, TASK_TYPES
+from pomodoro.models import PRIORITIES, STATUSES
 from pomodoro.priority import ScoredTask, capacity_until
 
 UNASSIGNED = "Unassigned"
@@ -66,6 +66,7 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
         _range_params(start, end),
     ).fetchall()
 
+    types = {t["key"]: t for t in db.list_types()}
     result = []
     for row in rows:
         key, color = row["key"], None
@@ -75,7 +76,8 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
             empty = "No category" if group == "category" else "No project"
             label, color = (empty, None) if key == "~none" else (key, row["color"])
         elif group == "type":
-            label = TASK_TYPES[key]
+            known = types.get(key)
+            label, color = (known["name"], known["color"]) if known else (key, None)
         else:
             label = PRIORITIES[int(key)]
         result.append(EffortRow(label, int(row["pomodoros"]), round(row["minutes"], 1), color))
@@ -83,8 +85,8 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
     if group in ("category", "project"):
         result.sort(key=lambda r: (-r.minutes, r.label))
     elif group == "type":
-        order = list(TASK_TYPES.values()) + [UNASSIGNED]
-        result.sort(key=lambda r: order.index(r.label))
+        order = [t["name"] for t in types.values()]
+        result.sort(key=lambda r: order.index(r.label) if r.label in order else len(order))
     else:
         order = list(PRIORITIES.values()) + [UNASSIGNED]
         result.sort(key=lambda r: order.index(r.label))
@@ -216,6 +218,7 @@ def export_sessions_csv(db: Database, start: date, end: date, path: str) -> int:
         "WHERE s.start_time >= ? AND s.start_time < ? ORDER BY s.start_time",
         _range_params(start, end),
     ).fetchall()
+    type_names = db.type_names()
     with open(path, "w", newline="", encoding="utf-8-sig") as f:   # BOM so Excel reads UTF-8
         writer = csv.writer(f)
         writer.writerow(["Date", "Start", "End", "Kind", "Minutes", "Full pomodoro",
@@ -225,7 +228,7 @@ def export_sessions_csv(db: Database, start: date, end: date, path: str) -> int:
                 r["start_time"][:10], r["start_time"][11:16], r["end_time"][11:16],
                 r["kind"].replace("_", " "), r["duration_min"], "Yes" if r["completed"] else "No",
                 r["title"] or "", r["category"] or "",
-                TASK_TYPES.get(r["type"], ""), PRIORITIES.get(r["priority"], ""),
+                type_names.get(r["type"], r["type"] or ""), PRIORITIES.get(r["priority"], ""),
                 STATUSES.get(r["status"], ""), r["due_date"] or "",
             ])
     return len(rows)
@@ -234,13 +237,15 @@ def export_sessions_csv(db: Database, start: date, end: date, path: str) -> int:
 def export_tasks_csv(db: Database, path: str) -> int:
     """All tasks with their totals. Returns row count."""
     tasks = db.list_tasks("all")
+    type_names = db.type_names()
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(["Task", "Category", "Type", "Priority", "Due date", "Estimate",
                          "Pomodoros", "Focus minutes", "Status", "Created", "Completed", "Notes"])
         for t in tasks:
             writer.writerow([
-                t["title"], t["category"] or "", TASK_TYPES[t["type"]], PRIORITIES[t["priority"]],
+                t["title"], t["category"] or "", type_names.get(t["type"], t["type"]),
+                PRIORITIES[t["priority"]],
                 t["due_date"] or "", t["estimate_pomodoros"] or "", t["pomodoros"],
                 round(t["focus_minutes"], 1), STATUSES[t["status"]], t["created_at"][:10],
                 (t["completed_at"] or "")[:10], t["notes"] or "",

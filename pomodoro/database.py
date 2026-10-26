@@ -10,19 +10,27 @@ don't need a migration.
 
 import json
 import os
+import re
 import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
-                             EXTRA_CATEGORY_COLOR, OLD_DEFAULT_COLORS, PRIORITIES, STATUSES,
-                             TASK_TYPES)
+                             DEFAULT_TYPES, EXTRA_CATEGORY_COLOR, OLD_DEFAULT_COLORS,
+                             PRIORITIES, STATUSES)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
     id    INTEGER PRIMARY KEY AUTOINCREMENT,
     name  TEXT NOT NULL UNIQUE,
     color TEXT NOT NULL DEFAULT '#888888'
+);
+
+CREATE TABLE IF NOT EXISTS task_types (
+    key      TEXT PRIMARY KEY,                 -- stored on tasks; never changes
+    name     TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    color    TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -36,8 +44,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     title              TEXT NOT NULL,
     category_id        INTEGER REFERENCES categories(id),
-    type               TEXT NOT NULL DEFAULT 'coding'
-                       CHECK (type IN ('coding', 'non-coding')),
+    type               TEXT NOT NULL DEFAULT 'coding',      -- a task_types.key
     priority           INTEGER NOT NULL DEFAULT 3
                        CHECK (priority BETWEEN 1 AND 4),   -- 1 = Critical ... 4 = Low
     due_date           TEXT,                                -- ISO date/datetime, optional
@@ -116,6 +123,7 @@ class Database:
         self._migrate()
         self._seed_settings()
         self._seed_categories()
+        self._seed_types()
 
     def _migrate(self):
         """Upgrade databases made by older versions of the app."""
@@ -124,8 +132,41 @@ class Database:
             if "project_id" not in columns:   # projects were added in v1.1
                 self.conn.execute(
                     "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+        self._allow_any_task_type()          # editable types were added in v1.2
+        category_columns = {row["name"] for row in
+                            self.conn.execute("PRAGMA table_info(categories)")}
+        with self.conn:
+            if "position" not in category_columns:
+                self.conn.execute(
+                    "ALTER TABLE categories ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+                # Keep the alphabetical order older versions showed.
+                for position, row in enumerate(self.conn.execute(
+                        "SELECT id FROM categories ORDER BY name").fetchall()):
+                    self.conn.execute("UPDATE categories SET position = ? WHERE id = ?",
+                                      (position, row["id"]))
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+
+    def _allow_any_task_type(self):
+        """v1.0/1.1 only allowed 'coding'/'non-coding' (a CHECK rule on tasks.type).
+        SQLite can't drop a CHECK rule, so the tasks table is copied without it."""
+        sql = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").fetchone()[0]
+        if "CHECK (type IN" not in sql:
+            return
+        new_sql = re.sub(r"\s*CHECK \(type IN \([^)]*\)\)", "", sql)
+        new_sql = new_sql.replace("CREATE TABLE tasks", "CREATE TABLE tasks_upgrade", 1)
+        columns = ", ".join(row["name"] for row in self.conn.execute("PRAGMA table_info(tasks)"))
+        self.conn.execute("PRAGMA foreign_keys = OFF")   # sessions point at tasks
+        try:
+            with self.conn:
+                self.conn.execute(new_sql)
+                self.conn.execute(f"INSERT INTO tasks_upgrade ({columns}) "
+                                  f"SELECT {columns} FROM tasks")
+                self.conn.execute("DROP TABLE tasks")
+                self.conn.execute("ALTER TABLE tasks_upgrade RENAME TO tasks")
+        finally:
+            self.conn.execute("PRAGMA foreign_keys = ON")
 
     def close(self):
         self.conn.close()
@@ -174,7 +215,8 @@ class Database:
         if self.conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
             with self.conn:
                 self.conn.executemany(
-                    "INSERT INTO categories (name, color) VALUES (?, ?)", DEFAULT_CATEGORIES)
+                    "INSERT INTO categories (name, color, position) VALUES (?, ?, ?)",
+                    [(name, color, i) for i, (name, color) in enumerate(DEFAULT_CATEGORIES)])
             return
         # Upgrade colours from older versions: the old defaults, and categories
         # created before new ones got a palette colour.
@@ -194,8 +236,36 @@ class Database:
         return next((c for c in CATEGORY_PALETTE if c.lower() not in used), EXTRA_CATEGORY_COLOR)
 
     def list_categories(self) -> list[dict]:
-        rows = self.conn.execute("SELECT id, name, color FROM categories ORDER BY name").fetchall()
+        """Categories in your chosen order, with how many tasks use each."""
+        rows = self.conn.execute(
+            "SELECT c.id, c.name, c.color, c.position, COUNT(t.id) AS tasks "
+            "FROM categories c LEFT JOIN tasks t ON t.category_id = c.id "
+            "GROUP BY c.id ORDER BY c.position, c.id").fetchall()
         return [dict(row) for row in rows]
+
+    def _clean_name(self, table: str, name: str, keep_id=None, id_column="id") -> str:
+        """Tidy a category/type name and check it's not blank or already taken."""
+        name = " ".join((name or "").split())
+        if not name:
+            raise ValueError("A name is required")
+        clash = self.conn.execute(
+            f"SELECT {id_column} AS id FROM {table} WHERE name = ? COLLATE NOCASE",
+            (name,)).fetchone()
+        if clash and clash["id"] != keep_id:
+            raise ValueError(f'"{name}" already exists')
+        return name
+
+    def _next_position(self, table: str) -> int:
+        return self.conn.execute(f"SELECT COALESCE(MAX(position), -1) + 1 FROM {table}"
+                                 ).fetchone()[0]
+
+    def create_category(self, name: str, color: str | None = None) -> int:
+        name = self._clean_name("categories", name)
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO categories (name, color, position) VALUES (?, ?, ?)",
+                (name, color or self._next_category_color(),
+                 self._next_position("categories"))).lastrowid
 
     def get_or_create_category(self, name: str) -> int | None:
         """Category id for this name (case-insensitive); creates it if new. Blank -> None."""
@@ -204,11 +274,104 @@ class Database:
             return None
         row = self.conn.execute(
             "SELECT id FROM categories WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
-        if row:
-            return row["id"]
+        return row["id"] if row else self.create_category(name)
+
+    def rename_category(self, category_id: int, name: str):
+        name = self._clean_name("categories", name, keep_id=category_id)
         with self.conn:
-            return self.conn.execute("INSERT INTO categories (name, color) VALUES (?, ?)",
-                                     (name, self._next_category_color())).lastrowid
+            self.conn.execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+
+    def set_category_color(self, category_id: int, color: str):
+        with self.conn:
+            self.conn.execute("UPDATE categories SET color = ? WHERE id = ?", (color, category_id))
+
+    def delete_category(self, category_id: int, move_to: int | None = None):
+        """Delete a category; its tasks move to `move_to` (None = no category)."""
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET category_id = ? WHERE category_id = ?",
+                              (move_to, category_id))
+            self.conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+
+    def move_category(self, category_id: int, step: int):
+        """Move a category up (-1) or down (+1) in the list."""
+        self._move_in_order("categories", "id", category_id, step)
+
+    def _move_in_order(self, table: str, id_column: str, item_id, step: int):
+        ids = [row[0] for row in self.conn.execute(
+            f"SELECT {id_column} FROM {table} ORDER BY position, {id_column}")]
+        index = ids.index(item_id)
+        target = index + step
+        if not 0 <= target < len(ids):
+            return
+        ids[index], ids[target] = ids[target], ids[index]
+        with self.conn:
+            for position, value in enumerate(ids):
+                self.conn.execute(f"UPDATE {table} SET position = ? WHERE {id_column} = ?",
+                                  (position, value))
+
+    # ---------- task types ----------
+
+    def _seed_types(self):
+        if self.conn.execute("SELECT COUNT(*) FROM task_types").fetchone()[0] == 0:
+            with self.conn:
+                self.conn.executemany(
+                    "INSERT INTO task_types (key, name, color, position) VALUES (?, ?, ?, ?)",
+                    [(key, name, CATEGORY_PALETTE[i], i)
+                     for i, (key, name) in enumerate(DEFAULT_TYPES)])
+
+    def list_types(self) -> list[dict]:
+        """Task types in your chosen order, with how many tasks use each."""
+        rows = self.conn.execute(
+            "SELECT tt.key, tt.name, tt.color, tt.position, COUNT(t.id) AS tasks "
+            "FROM task_types tt LEFT JOIN tasks t ON t.type = tt.key "
+            "GROUP BY tt.key ORDER BY tt.position, tt.key").fetchall()
+        return [dict(row) for row in rows]
+
+    def type_names(self) -> dict[str, str]:
+        return {t["key"]: t["name"] for t in self.list_types()}
+
+    def default_type(self) -> str:
+        """The type new tasks get unless you choose one: the first in the list."""
+        return self.list_types()[0]["key"]
+
+    def create_type(self, name: str, color: str | None = None) -> str:
+        name = self._clean_name("task_types", name, id_column="key")
+        base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "type"
+        key, n = base, 2
+        while self.conn.execute("SELECT 1 FROM task_types WHERE key = ?", (key,)).fetchone():
+            key, n = f"{base}-{n}", n + 1
+        if color is None:
+            used = {row[0].lower() for row in self.conn.execute("SELECT color FROM task_types")}
+            color = next((c for c in CATEGORY_PALETTE if c.lower() not in used),
+                         EXTRA_CATEGORY_COLOR)
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO task_types (key, name, color, position) VALUES (?, ?, ?, ?)",
+                (key, name, color, self._next_position("task_types")))
+        return key
+
+    def rename_type(self, key: str, name: str):
+        name = self._clean_name("task_types", name, keep_id=key, id_column="key")
+        with self.conn:
+            self.conn.execute("UPDATE task_types SET name = ? WHERE key = ?", (name, key))
+
+    def set_type_color(self, key: str, color: str):
+        with self.conn:
+            self.conn.execute("UPDATE task_types SET color = ? WHERE key = ?", (color, key))
+
+    def delete_type(self, key: str, move_to: str):
+        """Delete a type; its tasks change to `move_to`. The last type can't be deleted."""
+        keys = [t["key"] for t in self.list_types()]
+        if len(keys) <= 1:
+            raise ValueError("You need at least one type")
+        if move_to not in keys or move_to == key:
+            raise ValueError("Pick another type for its tasks")
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET type = ? WHERE type = ?", (move_to, key))
+            self.conn.execute("DELETE FROM task_types WHERE key = ?", (key,))
+
+    def move_type(self, key: str, step: int):
+        self._move_in_order("task_types", "key", key, step)
 
     # ---------- projects ----------
 
@@ -298,8 +461,8 @@ class Database:
             raise ValueError(f"Priority must be one of {list(PRIORITIES)}")
         if "status" in fields and fields["status"] not in STATUSES:
             raise ValueError(f"Status must be one of {list(STATUSES)}")
-        if "type" in fields and fields["type"] not in TASK_TYPES:
-            raise ValueError(f"Type must be one of {list(TASK_TYPES)}")
+        if "type" in fields and fields["type"] not in self.type_names():
+            raise ValueError(f"Type must be one of {list(self.type_names())}")
         if fields.get("estimate_pomodoros") == 0:
             fields["estimate_pomodoros"] = None   # 0 means "no estimate"
         return fields
@@ -307,6 +470,8 @@ class Database:
     def create_task(self, title: str, **fields) -> int:
         fields = self._clean_task_fields({"title": title, **fields})
         fields.setdefault("priority", DEFAULT_PRIORITY)
+        if not fields.get("type"):
+            fields["type"] = self.default_type()
         fields["created_at"] = datetime.now().isoformat(timespec="seconds")
         if fields.get("status") == "done":
             fields["completed_at"] = fields["created_at"]

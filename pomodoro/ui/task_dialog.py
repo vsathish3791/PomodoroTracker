@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDialog
                                QPlainTextEdit, QSpinBox, QVBoxLayout)
 
 from pomodoro.database import Database
-from pomodoro.models import DEFAULT_PRIORITY, PRIORITIES, STATUSES, TASK_TYPES
+from pomodoro.models import DEFAULT_PRIORITY, PRIORITIES, STATUSES
 from pomodoro.ui.project_picker import ProjectPicker
 
 
@@ -35,8 +35,8 @@ class TaskDialog(QDialog):
         self.project_input = ProjectPicker(db)
 
         self.type_input = QComboBox()
-        for key, label in TASK_TYPES.items():
-            self.type_input.addItem(label, key)
+        for task_type in db.list_types():
+            self.type_input.addItem(task_type["name"], task_type["key"])
 
         self.priority_input = QComboBox()
         for key, label in PRIORITIES.items():

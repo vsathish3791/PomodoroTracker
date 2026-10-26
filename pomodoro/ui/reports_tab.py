@@ -13,7 +13,6 @@ from pomodoro.database import Database
 from pomodoro.models import CATEGORY_PALETTE, EXTRA_CATEGORY_COLOR
 from pomodoro.ui.charts import Bar, ColumnChart, HBarChart
 
-TYPE_COLORS = {"Coding": CATEGORY_PALETTE[0], "Non-coding": CATEGORY_PALETTE[1]}
 RANGES = ["Today", "This week", "Last 7 days", "This month", "Last 30 days", "Custom"]
 
 
@@ -129,7 +128,7 @@ class ReportsTab(QWidget):
         grid = QGridLayout()
         grid.setSpacing(12)
         grid.addWidget(Card("Effort by category", self.category_chart), 0, 0)
-        grid.addWidget(Card("Coding vs non-coding", self.type_chart), 0, 1)
+        grid.addWidget(Card("Effort by type", self.type_chart), 0, 1)
         grid.addWidget(Card("Effort by priority", self.priority_chart,
                             "Are your pomodoros going to the important work?"), 1, 0)
         self.trend_card = Card("Daily trend", self.trend_chart)
@@ -224,7 +223,7 @@ class ReportsTab(QWidget):
             reports.effort_by(self.db, start, end, "project"), lambda r: r.color or grey))
         self.type_chart.set_bars(self._bars(
             reports.effort_by(self.db, start, end, "type"),
-            lambda r: TYPE_COLORS.get(r.label, grey)))
+            lambda r: r.color or grey))
         # Priority: one series, so one colour; the row labels say which is which.
         self.priority_chart.set_bars(self._bars(
             reports.effort_by(self.db, start, end, "priority"),
