@@ -92,6 +92,7 @@ DEFAULT_SETTINGS = {
     "hotkey": "Ctrl+Alt+P",         # global shortcut for Start / Pause
     "mini_window_visible": "0",
     "mini_window_pos": "",          # "x,y" of the mini timer
+    "last_project_id": "",          # project picked most recently for a new task
     "sound_enabled": "1",
 }
 
@@ -259,6 +260,16 @@ class Database:
                               (project_id,))
             self.conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
+    def last_project_id(self) -> int | None:
+        """The project you used last for a new task (None if unset or since deleted)."""
+        value = self.get_setting("last_project_id")
+        if value and self.get_project(int(value)):
+            return int(value)
+        return None
+
+    def set_last_project_id(self, project_id: int | None):
+        self.set_setting("last_project_id", project_id or "")
+
     def get_or_create_project(self, name: str) -> int | None:
         """Project id for this name (case-insensitive); creates it if new. Blank -> None."""
         name = " ".join((name or "").split())
@@ -393,14 +404,15 @@ class Database:
         ).fetchone()
         return row["id"] if row else None
 
-    def get_or_create_task(self, title: str) -> int:
+    def get_or_create_task(self, title: str, project_id: int | None = None) -> int:
         """Return the open task with this title (case-insensitive), creating it if needed.
 
-        The task is marked 'in_progress' since you're about to work on it.
+        A new task goes into `project_id`. The task is marked 'in_progress' since
+        you're about to work on it.
         """
         task_id = self.find_open_task(title)
         if task_id is None:
-            return self.create_task(title, status="in_progress")
+            return self.create_task(title, status="in_progress", project_id=project_id)
         with self.conn:
             self.conn.execute(
                 "UPDATE tasks SET status = 'in_progress' WHERE id = ? AND status IN ('todo', 'on_hold')",

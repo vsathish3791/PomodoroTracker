@@ -17,6 +17,7 @@ from pomodoro.priority import ScoredTask, ScoreWeights, day_summary, rank_tasks,
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
 from pomodoro.ui.main_window import MainWindow
 from pomodoro.ui.mini_window import MiniWindow
+from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
 from pomodoro.ui.reports_tab import ReportsTab
@@ -62,6 +63,12 @@ class PomodoroApp:
         self.window.task_input.currentTextChanged.connect(self._refresh_task_info)
         self.window.set_task_choices(self.db.recent_open_tasks())
         self.window.focus_next.start_requested.connect(self.start_task)
+
+        # Project for the task in the Timer's task box
+        self.timer_project = ProjectPicker(db)
+        self.timer_project.project_chosen.connect(self._on_timer_project_chosen)
+        self.timer_project.project_created.connect(lambda _: self._on_tasks_changed())
+        self.window.task_row.addWidget(self.timer_project)
 
         self.tasks_tab = TasksTab(db)
         self.tasks_tab.rank_lookup = lambda: {s.id: s for s in self.rank()}
@@ -314,8 +321,12 @@ class PomodoroApp:
                     override_of = top.id
                     self._dismissed_warnings.add((date.today(), name.lower(), top.id))
 
-            self.focus_task_id = self.db.get_or_create_task(name)
+            project_id = self.timer_project.project_id()
+            is_new = self.db.find_open_task(name) is None
+            self.focus_task_id = self.db.get_or_create_task(name, project_id)
             self.focus_task_name = self.db.get_task(self.focus_task_id)["title"]
+            if is_new:
+                self.db.set_last_project_id(project_id)
             if override_of is not None:
                 self.db.add_override(self.focus_task_id, override_of)
             self.window.set_task_choices(self.db.recent_open_tasks())
@@ -449,16 +460,30 @@ class PomodoroApp:
             return self.focus_task_id
         return self.db.find_open_task(self.window.task_name())
 
+    def _on_timer_project_chosen(self, project_id: int | None):
+        """Picking a project in the Timer: moves an existing task, or sets it for a new one."""
+        self.db.set_last_project_id(project_id)
+        task_id = self._current_task_id()
+        if task_id is not None:
+            self.db.update_task(task_id, project_id=project_id)
+            self._on_tasks_changed()
+            self.tasks_tab.refresh()
+
     def _refresh_task_info(self):
         """The line under the task box: priority, category, due date and progress."""
         task_id = self._current_task_id()
         task = self.db.get_task(task_id) if task_id is not None else None
+        # Existing task: show its project. New task: the project you used last.
+        self.timer_project.set_project_id(task["project_id"] if task
+                                          else self.db.last_project_id())
         if task is None:
-            text = ("New task - it's created when you start. Add details in the Tasks tab."
+            text = ("New task - it's created in the chosen project when you start."
                     if self.window.task_name() else "")
             self.window.show_task_info(text, can_mark_done=False)
             return
         parts = [PRIORITIES[task["priority"]]]
+        if task["project"]:
+            parts.append(task["project"])
         if task["category"]:
             parts.append(task["category"])
         if task["due_date"]:
@@ -488,6 +513,8 @@ class PomodoroApp:
         self._refresh_open_tab()
 
     def _on_tasks_changed(self):
+        self.timer_project.reload()
+        self.tasks_tab._reload_categories()   # also refreshes the project filter
         self.window.set_task_choices(self.db.recent_open_tasks())
         if self.timer.phase == Phase.FOCUS and self.timer.started:
             task = self.db.get_task(self.focus_task_id)
@@ -506,6 +533,7 @@ class PomodoroApp:
     # ---------- window / app lifecycle ----------
 
     def show_window(self):
+        self.window.fit_to_screen()
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()

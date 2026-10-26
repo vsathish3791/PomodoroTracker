@@ -40,7 +40,14 @@ def make_icon(color: str, text: str = "", dimmed: bool = False) -> QIcon:
 
 
 STYLESHEET = """
-QWidget#root, QWidget#root > QWidget { background: #FAFAFA; }
+QWidget#root, QWidget#root > QWidget, QWidget#timerWrapper { background: #FAFAFA; }
+QComboBox#projectPicker, QFrame#todoCard QComboBox#projectPicker {
+    background: white; color: #1C2024; border: 1px solid #D9D9E0; border-radius: 6px;
+    padding: 5px 8px; font-size: 13px; }
+QComboBox#projectPicker:disabled, QFrame#todoCard QComboBox#projectPicker:disabled {
+    background: #F0F0F3; color: #8B8D98; }
+QComboBox#projectPicker QAbstractItemView { background: white; color: #1C2024;
+    selection-background-color: #FFE5E5; selection-color: #1C2024; }
 QTabBar::tab { padding: 8px 22px; font-size: 13px; color: #60646C; }
 QTabBar::tab:selected { color: #1C2024; font-weight: 600; border-bottom: 2px solid #E5484D; }
 QTableWidget { background: white; border: 1px solid #E8E8EC; border-radius: 6px;
@@ -85,9 +92,10 @@ QListWidget#todoNav QLabel { background: transparent; }
 QLabel#navName { font-size: 14px; color: #1C2024; }
 QLabel#navMeta { font-size: 12px; color: #8B8D98; }
 QLabel#navHeader { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #8B8D98; }
-QPushButton#todoNewProject { text-align: left; border: none; background: transparent;
-                             color: #60646C; font-size: 13px; padding: 6px 10px; }
-QPushButton#todoNewProject:hover { background: #EFEFF2; }
+QToolButton#navAdd { border: none; background: transparent; color: #60646C; font-size: 18px;
+                     padding: 0 6px; }
+QToolButton#navAdd:hover { background: #E6E6EA; border-radius: 4px; }
+QLabel#navNew { font-size: 13px; color: #60646C; }
 QWidget#todoMain, QWidget#todoList { background: #F2F2F4; }
 QLabel#todoHeading { font-size: 24px; font-weight: 600; color: #1C2024; }
 QToolButton#todoSort { border: none; background: white; border-radius: 6px; font-size: 16px;

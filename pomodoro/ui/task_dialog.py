@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDialog
 
 from pomodoro.database import Database
 from pomodoro.models import DEFAULT_PRIORITY, PRIORITIES, STATUSES, TASK_TYPES
+from pomodoro.ui.project_picker import ProjectPicker
 
 
 class TaskDialog(QDialog):
@@ -30,11 +31,8 @@ class TaskDialog(QDialog):
         self.category_input.addItems([c["name"] for c in db.list_categories()])
         self.category_input.lineEdit().setPlaceholderText("Pick or type a new category")
 
-        # Pick a project, or type a new name to create one.
-        self.project_input = QComboBox(editable=True)
-        self.project_input.addItem("")
-        self.project_input.addItems([p["name"] for p in db.list_projects()])
-        self.project_input.lineEdit().setPlaceholderText("Pick or type a new project")
+        # Pick a project, or "+ New project…" at the bottom of the list.
+        self.project_input = ProjectPicker(db)
 
         self.type_input = QComboBox()
         for key, label in TASK_TYPES.items():
@@ -89,15 +87,14 @@ class TaskDialog(QDialog):
     def _load(self, task: dict | None):
         if not task:
             self.priority_input.setCurrentIndex(self.priority_input.findData(DEFAULT_PRIORITY))
-            if self.default_project_id:
-                project = self.db.get_project(self.default_project_id)
-                self.project_input.setCurrentText(project["name"] if project else "")
+            self.project_input.set_project_id(self.default_project_id
+                                              or self.db.last_project_id())
             self.has_due.setChecked(False)
             self.due_input.setEnabled(False)
             return
         self.title_input.setText(task["title"])
         self.category_input.setCurrentText(task["category"] or "")
-        self.project_input.setCurrentText(task["project"] or "")
+        self.project_input.set_project_id(task["project_id"])
         self.type_input.setCurrentIndex(self.type_input.findData(task["type"]))
         self.priority_input.setCurrentIndex(self.priority_input.findData(task["priority"]))
         self.has_due.setChecked(bool(task["due_date"]))
@@ -116,7 +113,7 @@ class TaskDialog(QDialog):
         return {
             "title": self.title_input.text(),
             "category_id": self.db.get_or_create_category(self.category_input.currentText()),
-            "project_id": self.db.get_or_create_project(self.project_input.currentText()),
+            "project_id": self.project_input.project_id(),
             "type": self.type_input.currentData(),
             "priority": self.priority_input.currentData(),
             "due_date": due,
@@ -144,4 +141,5 @@ class TaskDialog(QDialog):
             self.db.update_task(self.task_id, **values)
         else:
             self.task_id = self.db.create_task(**values)
+            self.db.set_last_project_id(values["project_id"])
         self.accept()

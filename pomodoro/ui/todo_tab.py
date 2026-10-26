@@ -7,7 +7,7 @@ its totals, a quick-add box, and the tasks grouped by project.
 
 from datetime import date, timedelta
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QInputDialo
 from pomodoro import lists
 from pomodoro.database import Database
 from pomodoro.models import CATEGORY_PALETTE, PRIORITIES, due_label, is_overdue
+from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.task_dialog import TaskDialog
 
 RED = "#E5484D"
@@ -234,9 +235,6 @@ class TodoTab(QWidget):
         self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.nav.setContextMenuPolicy(Qt.CustomContextMenu)
-        new_project = QPushButton("+  New project", objectName="todoNewProject")
-        new_project.setCursor(Qt.PointingHandCursor)
-
         sidebar = QFrame(objectName="todoSidebar")
         sidebar.setFixedWidth(250)
         side = QVBoxLayout(sidebar)
@@ -244,7 +242,6 @@ class TodoTab(QWidget):
         side.setSpacing(8)
         side.addWidget(self.search_input)
         side.addWidget(self.nav, 1)
-        side.addWidget(new_project)
 
         # ----- main panel -----
         self.title_label = QLabel(objectName="todoHeading")
@@ -271,6 +268,10 @@ class TodoTab(QWidget):
             stats_layout.addWidget(block, 1)
 
         self.add_input = QLineEdit(objectName="todoAdd")
+        self.add_project = ProjectPicker(db)
+        self.add_project.project_chosen.connect(self.db.set_last_project_id)
+        self.add_project.project_created.connect(lambda _: self._changed())
+        self._picker_view = None     # the list the picker's default was set for
         self.estimate_picker = EstimatePicker()
         add_card = QFrame(objectName="todoCard")
         add_layout = QHBoxLayout(add_card)
@@ -278,6 +279,8 @@ class TodoTab(QWidget):
         plus = QLabel("+", objectName="todoPlus")
         add_layout.addWidget(plus)
         add_layout.addWidget(self.add_input, 1)
+        add_layout.addWidget(self.add_project)
+        add_layout.addSpacing(8)
         add_layout.addWidget(self.estimate_picker)
 
         self.list_layout = QVBoxLayout()
@@ -310,7 +313,6 @@ class TodoTab(QWidget):
         self.nav.customContextMenuRequested.connect(self._nav_menu)
         self.search_input.textChanged.connect(lambda _: self.refresh_list())
         self.add_input.returnPressed.connect(self._quick_add)
-        new_project.clicked.connect(self.new_project)
         self.refresh()
 
     # ---------- sidebar ----------
@@ -361,19 +363,26 @@ class TodoTab(QWidget):
             count, minutes = counts[key]
             add(key, self._nav_row(symbol, tint, name, None if key == "completed" else minutes,
                                    count))
-        header = QLabel("PROJECTS", objectName="navHeader")
-        header.setContentsMargins(10, 8, 0, 0)
-        add(None, header, selectable=False, height=36)
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(10, 8, 6, 0)
+        header_layout.addWidget(QLabel("PROJECTS", objectName="navHeader"), 1)
+        plus = QToolButton(objectName="navAdd")
+        plus.setText("+")
+        plus.setToolTip("New project")
+        plus.setCursor(Qt.PointingHandCursor)
+        plus.clicked.connect(self.new_project)
+        header_layout.addWidget(plus)
+        add(None, header, selectable=False, height=38)
         projects = self.db.list_projects()
-        if not projects:
-            hint = QLabel("No projects yet", objectName="navMeta")
-            hint.setContentsMargins(12, 0, 0, 0)
-            add(None, hint, selectable=False, height=28)
         for project in projects:
             key = f"project:{project['id']}"
             count, minutes = counts[key]
             add(key, self._nav_row("", project["color"], project["name"], minutes, count,
                                    dot=True))
+        new_row = QLabel("+  New project", objectName="navNew")
+        new_row.setContentsMargins(12, 0, 0, 0)
+        add("new-project", new_row, height=36)
 
         if selected is None:            # e.g. the shown project was deleted
             self.current = "today"
@@ -381,7 +390,13 @@ class TodoTab(QWidget):
         self.nav.setCurrentItem(selected)
         self.nav.blockSignals(False)
 
-    def _on_nav_changed(self, item, _previous):
+    def _on_nav_changed(self, item, previous):
+        if item is not None and item.data(Qt.UserRole) == "new-project":
+            self.nav.blockSignals(True)
+            self.nav.setCurrentItem(previous)    # keep showing the list you were on
+            self.nav.blockSignals(False)
+            QTimer.singleShot(0, self.new_project)
+            return
         if item is not None and item.data(Qt.UserRole):
             self.current = item.data(Qt.UserRole)
             self.search_input.clear()
@@ -478,6 +493,16 @@ class TodoTab(QWidget):
         self.stat_completed.set_number(stats.completed)
 
         can_add = self.current != "completed" and not search
+        # New tasks go to the project you're looking at, else the one you used last.
+        # Only reset when you switch lists, so your own pick isn't overwritten.
+        self.add_project.reload()
+        if self._picker_view != self.current:
+            self._picker_view = self.current
+            if self.current.startswith("project:"):
+                self.add_project.set_project_id(int(self.current.split(":")[1]))
+            else:
+                self.add_project.set_project_id(self.db.last_project_id())
+        self.add_project.setEnabled(can_add)
         self.add_input.setEnabled(can_add)
         self.estimate_picker.setEnabled(can_add)
         self.add_input.setPlaceholderText(
@@ -568,10 +593,10 @@ class TodoTab(QWidget):
                                 f'There is already an open task called "{title}".')
             return
         today = date.today()
-        fields = {"estimate_pomodoros": self.estimate_picker.value or None}
-        if self.current.startswith("project:"):
-            fields["project_id"] = int(self.current.split(":")[1])
-        elif self.current in ("today", "week"):
+        fields = {"estimate_pomodoros": self.estimate_picker.value or None,
+                  "project_id": self.add_project.project_id()}
+        self.db.set_last_project_id(fields["project_id"])
+        if self.current in ("today", "week"):
             fields["due_date"] = today.isoformat()
         elif self.current == "tomorrow":
             fields["due_date"] = (today + timedelta(days=1)).isoformat()

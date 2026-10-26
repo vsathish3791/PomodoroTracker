@@ -54,6 +54,23 @@ class ProjectTests(unittest.TestCase):
         self.assertIsNone(self.db.get_task(task)["project_id"])
         self.assertEqual(self.db.list_projects(), [])
 
+    def test_last_used_project(self):
+        self.assertIsNone(self.db.last_project_id())
+        work = self.db.create_project("Work")
+        self.db.set_last_project_id(work)
+        self.assertEqual(self.db.last_project_id(), work)
+        self.db.delete_project(work)
+        self.assertIsNone(self.db.last_project_id())      # deleted project is forgotten
+
+    def test_get_or_create_task_puts_new_task_in_project(self):
+        work = self.db.create_project("Work")
+        study = self.db.create_project("Study")
+        task = self.db.get_or_create_task("Write tests", work)
+        self.assertEqual(self.db.get_task(task)["project_id"], work)
+        # An existing task keeps its project
+        self.assertEqual(self.db.get_or_create_task("write tests", study), task)
+        self.assertEqual(self.db.get_task(task)["project_id"], work)
+
     def test_old_database_gets_project_column(self):
         path = os.path.join(tempfile.mkdtemp(), "v1.db")
         conn = sqlite3.connect(path)            # a v1 tasks table without project_id

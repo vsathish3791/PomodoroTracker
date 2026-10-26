@@ -1,8 +1,10 @@
 """The main timer window."""
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QComboBox, QCompleter, QHBoxLayout, QLabel, QMainWindow,
-                               QProgressBar, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                               QFrame, QProgressBar, QPushButton, QScrollArea, QTabWidget,
+                               QVBoxLayout, QWidget)
 
 from pomodoro.timer import Phase
 from pomodoro.ui.focus_next import FocusNextPanel
@@ -23,9 +25,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Pomodoro Tracker")
-        self.setMinimumSize(520, 640)
-        self.resize(1100, 760)
+        self.setMinimumSize(480, 420)
         self.allow_close = False
+        self._sized = False
 
         # Tabs: "Timer" is built here; the app adds "Tasks" (it needs the database).
         self.tabs = QTabWidget(objectName="root")
@@ -37,10 +39,13 @@ class MainWindow(QMainWindow):
         timer_page.addStretch()
         timer_page.addWidget(root, 0)
         timer_page.addStretch()
-        wrapper = QWidget()
+        wrapper = QWidget(objectName="timerWrapper")
         wrapper.setLayout(timer_page)
         root.setFixedWidth(480)
-        self.tabs.addTab(wrapper, "Timer")
+        # Scrolls on short screens, so nothing is ever cut off.
+        timer_scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.NoFrame)
+        timer_scroll.setWidget(wrapper)
+        self.tabs.addTab(timer_scroll, "Timer")
 
         corner = QWidget()
         corner_layout = QHBoxLayout(corner)
@@ -60,6 +65,10 @@ class MainWindow(QMainWindow):
         self.task_input.lineEdit().returnPressed.connect(self.task_entered.emit)
         self.task_input.completer().setCaseSensitivity(Qt.CaseInsensitive)
         self.task_input.completer().setCompletionMode(QCompleter.PopupCompletion)
+        # The task box and (added by the app) the project picker share a row.
+        self.task_row = QHBoxLayout()
+        self.task_row.setSpacing(6)
+        self.task_row.addWidget(self.task_input, 1)
         self.task_stats_label = QLabel(objectName="taskStats", wordWrap=True)
         self.mark_done_button = QPushButton("✓ Mark done", objectName="small")
         self.mark_done_button.setCursor(Qt.PointingHandCursor)
@@ -91,7 +100,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(10)
-        layout.addWidget(self.task_input)
+        layout.addLayout(self.task_row)
         layout.addLayout(task_info_row)
         layout.addSpacing(6)
         layout.addWidget(self.phase_label)
@@ -106,6 +115,19 @@ class MainWindow(QMainWindow):
         self.focus_next = FocusNextPanel()
         layout.addWidget(self.focus_next)
         layout.addStretch()
+
+    def fit_to_screen(self):
+        """First time the window is shown: as big as is comfortable, but never off-screen."""
+        if self._sized:
+            return
+        self._sized = True
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+        width = min(1100, area.width() - 40)
+        height = min(760, area.height() - 40)   # leaves room for the title bar
+        self.resize(width, height)
+        self.move(area.left() + (area.width() - width) // 2,
+                  area.top() + max((area.height() - height) // 2 - 10, 0))
 
     def show_state(self, phase: Phase, running: bool, started: bool,
                    remaining: float, total: float):

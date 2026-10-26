@@ -25,7 +25,7 @@ Run the tests:
 ```
 
 - `dist\PomodoroTracker\PomodoroTracker.exe` - the app, runnable without Python.
-- `installer_output\PomodoroTracker-Setup-1.1.0.exe` - the installer, built only if
+- `installer_output\PomodoroTracker-Setup-1.1.1.exe` - the installer, built only if
   [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed
   (`winget install JRSoftware.InnoSetup`). It installs for your user only (no admin),
   adds Start menu and optional desktop shortcuts, can start the app when you sign in,
@@ -36,8 +36,13 @@ Run the tests:
 ### Projects and the To-Do view (v1.1)
 
 - **Projects**: group tasks by what they're for (Work, Study, Finance…). Create one
-  with **+ New project**, or type a new name in a task's *Project* box. Right-click a
-  project to rename it, change its colour, or delete it (its tasks are kept).
+  with the **+** next to PROJECTS in the To-Do sidebar, or pick **+ New project…** in any
+  project drop-down. Right-click a project to rename it, change its colour, or delete it
+  (its tasks are kept).
+- **Every place you add a task asks for its project**: the To-Do quick-add bar, the
+  Timer's task box and the task form. It starts on the project you're viewing, or the
+  one you used last. Changing the project in the Timer moves the current task.
+- The window sizes itself to fit your screen, and the Timer tab scrolls if needed.
 - **To-Do tab**, in the style of Focus To-Do:
   - Sidebar with **Today** (due today or overdue), **Tomorrow**, **This Week**,
     **Planned** (any due date), **Completed** and **Tasks** (all open), then your
