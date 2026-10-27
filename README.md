@@ -31,6 +31,22 @@ Run the tests:
   adds Start menu and optional desktop shortcuts, can start the app when you sign in,
   and has an uninstaller. Your data in `%APPDATA%\PomodoroTracker` is kept on uninstall.
 
+### If Windows Smart App Control blocks the installer
+
+Smart App Control only runs signed or well-known programs, so it blocks this app's
+unsigned installer and exe ("Error 4551: An Application Control policy has blocked
+this file"). Run the app through the project's Python instead - `pythonw.exe` is signed
+by the Python Software Foundation and PySide6 by The Qt Company:
+
+```bash
+powershell -ExecutionPolicy Bypass -File create_shortcuts.ps1
+```
+
+This adds **Pomodoro Tracker (Python)** to the desktop and Start menu (add `-Startup`
+to also start it when you sign in, or `-Name "Pomodoro Tracker"` for another name).
+The app then runs straight from this folder: to update, change the code and restart it.
+Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed version.
+
 ## What works now
 
 ### Energy slots and Notion links (v1.2.1)
