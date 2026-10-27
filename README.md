@@ -26,7 +26,7 @@ nothing is shared or uploaded. The Notion connection is optional and per person.
 
 | Way | Good for | Notes |
 |---|---|---|
-| GitHub repo + `setup.ps1` | Anyone with Python | Works with Smart App Control on (uses signed Python). Repo must be public, or add people as collaborators. |
+| GitHub repo + `setup.ps1` | Anyone with Python | Works with Smart App Control on (uses signed Python). Repo is public (MIT licence). |
 | Portable ZIP from `build.py` | People without Python | Unzip, run `PomodoroTracker.exe`. Unsigned: SmartScreen warns (*More info -> Run anyway*); blocked where Smart App Control is on. |
 | Installer from `build.py` | Same as the ZIP | Adds shortcuts and an uninstaller. Same signing caveat. |
 
@@ -398,3 +398,7 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 5. ~~Polish: settings screen, mini window, global hotkey, installer~~ (done)
 
 Possible next steps: calendar view of due dates, editing past sessions, dark mode.
+
+## License
+
+[MIT](LICENSE) - free to use, change and share; keep the copyright notice.
