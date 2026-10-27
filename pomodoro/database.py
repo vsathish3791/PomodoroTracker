@@ -17,7 +17,7 @@ from pathlib import Path
 
 from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
                              ANOMALY_KINDS, ANOMALY_REASONS, DEFAULT_TYPES, ENERGY_SLOTS,
-                             EXTRA_CATEGORY_COLOR, NATURES,
+                             EXTRA_CATEGORY_COLOR, NATURES, STRETCH,
                              OLD_DEFAULT_COLORS, PRIORITIES, STATUSES)
 from pomodoro.recurrence import Schedule, parse_cue_time, schedule_from_row, streaks
 
@@ -200,12 +200,19 @@ class Database:
             for column, kind in [("recurrence_id", "INTEGER REFERENCES recurrences(id)"),
                                  ("occurrence_date", "TEXT"), ("nature", "TEXT"),
                                  ("checklist", "TEXT"), ("checklist_done", "TEXT"),
-                                 ("planned_date", "TEXT")]:   # v1.7: planned for a day
+                                 ("planned_date", "TEXT"),    # v1.7: planned for a day
+                                 ("stretch", "TEXT")]:        # v1.8: comfort/stretch/panic
                 if column not in columns:     # v1.3: recurring tasks, kind of work, checklists
                     self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {kind}")
             if "showed_up" not in columns:    # v1.4: done via the two-minute version
                 self.conn.execute(
                     "ALTER TABLE tasks ADD COLUMN showed_up INTEGER NOT NULL DEFAULT 0")
+            session_columns = {row["name"] for row in
+                               self.conn.execute("PRAGMA table_info(sessions)")}
+            for column, kind in [("practice_skill", "TEXT"), ("practice_target", "TEXT"),
+                                 ("difficulty", "INTEGER")]:
+                if column not in session_columns:   # v1.8: practice-mode pomodoros
+                    self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} {kind}")
             rec_columns = {row["name"] for row in
                            self.conn.execute("PRAGMA table_info(recurrences)")}
             for column, kind in [("cue_time", "TEXT"), ("cue_place", "TEXT"),
@@ -1093,17 +1100,41 @@ class Database:
     # ---------- sessions ----------
 
     def add_session(self, kind: str, start: datetime, end: datetime, duration_min: float,
-                    completed: bool, task_id: int | None = None) -> int:
-        """Log one focus/break block. duration_min is time actually counted (pauses excluded)."""
+                    completed: bool, task_id: int | None = None,
+                    practice_skill: str | None = None,
+                    practice_target: str | None = None) -> int:
+        """Log one focus/break block. duration_min is time actually counted (pauses excluded).
+        A practice pomodoro also records the skill and the narrow target practised."""
         duration_min = round(duration_min, 2)
+        skill = " ".join((practice_skill or "").split()) or None
+        target = " ".join((practice_target or "").split()) or None
         with self.conn:
             cur = self.conn.execute(
-                "INSERT INTO sessions (task_id, kind, start_time, end_time, duration_min, completed) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO sessions (task_id, kind, start_time, end_time, duration_min, "
+                "completed, practice_skill, practice_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (task_id, kind, start.isoformat(timespec="seconds"),
-                 end.isoformat(timespec="seconds"), duration_min, int(completed)),
+                 end.isoformat(timespec="seconds"), duration_min, int(completed), skill, target),
             )
         return cur.lastrowid
+
+    def set_session_difficulty(self, session_id: int, difficulty: int | None):
+        if difficulty is not None and not 1 <= difficulty <= 5:
+            raise ValueError("Difficulty is 1 (easy) to 5 (very hard)")
+        with self.conn:
+            self.conn.execute("UPDATE sessions SET difficulty = ? WHERE id = ?",
+                              (difficulty, session_id))
+
+    def set_stretch(self, task_id: int, stretch: str | None):
+        if stretch is not None and stretch not in STRETCH:
+            raise ValueError(f"Stretch must be one of {list(STRETCH)}")
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET stretch = ? WHERE id = ?", (stretch, task_id))
+
+    def practice_skills(self) -> list[str]:
+        """Skills you've practised before, most recent first (for the Timer's list)."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT practice_skill FROM sessions WHERE practice_skill IS NOT NULL "
+            "GROUP BY practice_skill ORDER BY MAX(start_time) DESC")]
 
     def focus_minutes_by_task(self, day: date) -> dict[int, float]:
         """{task id: focus minutes logged that day}."""

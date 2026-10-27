@@ -2,12 +2,13 @@
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QMainWindow, QProgressBar, QPushButton, QScrollArea, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QCompleter, QFrame, QGridLayout,
+                               QHBoxLayout, QLabel, QLineEdit, QMainWindow, QProgressBar,
+                               QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
 from pomodoro.models import ANOMALY_REASONS, REASON_CHIPS
 from pomodoro.timer import Phase
+from pomodoro.ui.prompt_bar import PromptBar
 from pomodoro.ui.focus_next import FocusNextPanel
 from pomodoro.ui.theme import PHASE_COLORS, STYLESHEET
 
@@ -36,7 +37,14 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget(objectName="root")
         self.tabs.setStyleSheet(STYLESHEET)
         self.tabs.setDocumentMode(True)
-        self.setCentralWidget(self.tabs)
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.tabs, 1)
+        self.prompt_bar = PromptBar()      # one-click questions at the bottom
+        central_layout.addWidget(self.prompt_bar)
+        self.setCentralWidget(central)
         root = QWidget(objectName="timerPage")
         timer_page = QHBoxLayout()   # centres the timer column in a wide window
         timer_page.addStretch()
@@ -108,6 +116,23 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.addLayout(self.task_row)
         layout.addLayout(task_info_row)
+
+        # Practice mode (deliberate practice): a skill and a narrow target for this pomodoro.
+        self.practice_check = QCheckBox("🎯 Practice")
+        self.practice_check.setToolTip("Deliberate practice: name the skill and one narrow "
+                                       "thing to improve. You'll rate how hard it was.")
+        self.practice_skill = QComboBox(editable=True)
+        self.practice_skill.lineEdit().setPlaceholderText("Skill, e.g. DAX")
+        self.practice_target = QLineEdit(
+            placeholderText="Narrow target, e.g. time-intelligence measures")
+        practice_row = QHBoxLayout()
+        practice_row.addWidget(self.practice_check)
+        practice_row.addWidget(self.practice_skill, 1)
+        practice_row.addWidget(self.practice_target, 2)
+        for widget in (self.practice_skill, self.practice_target):
+            widget.setVisible(False)
+            self.practice_check.toggled.connect(widget.setVisible)
+        layout.addLayout(practice_row)
         layout.addSpacing(6)
         layout.addWidget(self.phase_label)
         layout.addWidget(self.time_label)
@@ -203,6 +228,19 @@ class MainWindow(QMainWindow):
         """Let the Timer page grow (and scroll) instead of squashing Focus Next."""
         self.timer_root.setMinimumHeight(self.timer_root.sizeHint().height())
 
+    def practice(self) -> tuple[str | None, str | None]:
+        """(skill, target) if this pomodoro is a practice pomodoro, else (None, None)."""
+        if not self.practice_check.isChecked():
+            return None, None
+        skill = " ".join(self.practice_skill.currentText().split()) or "Practice"
+        return skill, self.practice_target.text().strip() or None
+
+    def set_practice_skills(self, skills: list[str]):
+        current = self.practice_skill.currentText()
+        self.practice_skill.clear()
+        self.practice_skill.addItems(skills)
+        self.practice_skill.setEditText(current)
+
     def show_distractions(self, visible: bool, count: int = 0):
         self.distraction_button.setVisible(visible)
         self.distraction_button.setText(f"⚡ I got distracted ({count})" if count
@@ -229,6 +267,8 @@ class MainWindow(QMainWindow):
     def set_task_locked(self, locked: bool):
         """The task can't be changed in the middle of a focus block."""
         self.task_input.setEnabled(not locked)
+        for widget in (self.practice_check, self.practice_skill, self.practice_target):
+            widget.setEnabled(not locked)
 
     def show_task_info(self, text: str, can_mark_done: bool):
         self.task_stats_label.setText(text)

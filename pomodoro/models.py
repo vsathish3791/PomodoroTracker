@@ -30,6 +30,9 @@ NATURE_HINTS = {
     "improvement": "One-off work that moves something forward (e.g. design the analytics hub).",
 }
 
+# How a finished task felt (growth mindset: growth happens in the stretch zone).
+STRETCH = {"comfort": "😌 Comfort", "stretch": "💪 Stretch", "panic": "😰 Panic"}
+
 # Anomalies (Falconi): things that went off-plan, so their causes can be found.
 ANOMALY_KINDS = {
     "stopped": "Stopped early",

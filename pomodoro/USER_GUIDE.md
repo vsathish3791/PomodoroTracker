@@ -11,7 +11,7 @@ The app is for **planning and execution**; keep notes, learnings and reflections
 | **Today** | Your day on one page: routines & habits, today's focus tasks, capacity, goals. |
 | **To-Do** | All tasks. **☰ List** (Today, Tomorrow, This Week, Planned, Recurring, Completed, projects) or **▦ Table**. |
 | **Goals** | Control panel, goals, time split and your running total. |
-| **Reports** | **Effort** charts, **Deadlines** board and **Weekly review**. |
+| **Reports** | **Effort** charts, **Deadlines** board, **Weekly review** and **Growth**. |
 
 Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **? Help**.
 
@@ -61,6 +61,16 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
   tasks, estimate vs actual, and **Interruptions & misses** (a Pareto of causes – fix the
   red ones first). Export CSV.
 - **Reports → Deadlines**: tasks by due date and a 7-day workload check.
+
+## Growth
+
+- **Rate finished tasks** – a bar at the bottom asks *😌 Comfort · 💪 Stretch · 😰 Panic*
+  (one click, or Skip). Aim for about 30% stretch.
+- **🎯 Practice** (on the Timer) – name a skill and one narrow target; after the pomodoro,
+  rate how hard it was (1–5). Falling difficulty means you're improving.
+- **Reports → Growth** – *Then vs Now* (last 30 days vs the 30 before), your **best
+  hours** (Focus Next then favours ⚡ Deep-work tasks in your peak hours), your stretch
+  mix, and practice per skill.
 
 ## Settings and shortcuts
 

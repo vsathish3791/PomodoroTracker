@@ -49,6 +49,22 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Growth: stretch zone, best hours, practice, Then vs Now (v1.8)
+
+The execution side of a growth mindset, measured from your own pomodoros (reflection
+stays in Notion):
+
+- **Stretch rating** - finishing a task shows a one-click bar at the bottom:
+  *😌 Comfort · 💪 Stretch · 😰 Panic* (or Skip).
+- **🎯 Practice mode** on the Timer - a skill and one narrow target; afterwards rate the
+  difficulty 1-5.
+- **Best hours** - your peak and weakest hours from completed pomodoros and
+  distractions. Focus Next adds points (Settings -> Focus Score -> *Fits the time of day*)
+  to ⚡ Deep-work tasks in your peak hours and ☐ Plan/Close tasks in your weakest hour.
+- **Reports -> Growth** - *Then vs Now* (last 30 days vs the 30 before, incl. 🍅 per task
+  by category), best-hours chart, stretch mix with advice, practice per skill with the
+  difficulty trend.
+
 ### Today, close the day, weekly review, in-app guide (v1.7)
 
 Tabs are now **Timer · Today · To-Do · Goals · Reports**.
@@ -311,6 +327,8 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/ui/today_tab.py` | The Today tab, Plan my day, Close the day |
 | `pomodoro/ui/review_tab.py` | Weekly review |
 | `pomodoro/USER_GUIDE.md`, `pomodoro/ui/help_dialog.py` | The in-app guide |
+| `pomodoro/growth.py` | Best hours, stretch mix, practice, Then vs Now - plain Python |
+| `pomodoro/ui/growth_tab.py`, `pomodoro/ui/prompt_bar.py` | Growth report; one-click bottom bar |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
 | `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |

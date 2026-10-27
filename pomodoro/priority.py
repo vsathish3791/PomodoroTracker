@@ -35,6 +35,7 @@ class ScoreWeights:
     within_7_days: int = 10
     at_risk: int = 20
     never_miss_twice: int = 30       # a recurring task that was missed last time
+    energy_match: int = 10           # task's energy slot fits the time of day
 
     def priority(self, level: int) -> int:
         return {1: self.p1, 2: self.p2, 3: self.p3, 4: self.p4}[level]
@@ -150,7 +151,8 @@ def find_at_risk(tasks: list[dict], today: date, daily_goal: int, done_today: in
 def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8,
                done_today: int = 0, working_days: set[int] | None = None,
                weights: ScoreWeights = DEFAULT_WEIGHTS,
-               reserved: list[dict] | None = None) -> list[ScoredTask]:
+               reserved: list[dict] | None = None,
+               energy_now: str | None = None) -> list[ScoredTask]:
     """Score and sort tasks, best next task first. Done and On Hold tasks are left out.
 
     `tasks` are dicts as returned by Database.list_tasks (with a 'pomodoros' total).
@@ -169,9 +171,12 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
         at_risk = task["id"] in risky
         remaining = remaining_pomodoros(task)
         missed_last = bool(task.get("recurrence_id")) and task.get("previous_status") == "missed"
+        # energy_now: 'deep' in your peak focus hours, 'plan' in your weakest hour (growth.py)
+        energy_fit = energy_now is not None and task.get("energy_slot") == energy_now
         score = (weights.priority(task["priority"]) + urgency_weight(due, today, weights)
                  + (weights.at_risk if at_risk else 0)
-                 + (weights.never_miss_twice if missed_last else 0))
+                 + (weights.never_miss_twice if missed_last else 0)
+                 + (weights.energy_match if energy_fit else 0))
 
         reasons = [PRIORITIES[task["priority"]]]
         if due is not None:
@@ -185,6 +190,9 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
             reasons.append("at risk")
         if missed_last:
             reasons.append("missed last time – don't miss twice")
+        if energy_fit:
+            reasons.append("fits your peak focus hours" if energy_now == "deep"
+                           else "fits your low-energy hour")
         scored.append(ScoredTask(task, score, remaining, at_risk, reasons))
 
     scored.sort(key=lambda s: (

@@ -11,9 +11,10 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QTabWidget
 
 from pomodoro import __version__
+from pomodoro import growth
 from pomodoro.database import Database
 from pomodoro.hotkey import GlobalHotkey
-from pomodoro.models import (ANOMALY_REASONS, ENERGY_SHORT, PRIORITIES, due_label,
+from pomodoro.models import (ANOMALY_REASONS, ENERGY_SHORT, PRIORITIES, STRETCH, due_label,
                              pomodoro_progress)
 from pomodoro.priority import ScoredTask, ScoreWeights, day_summary, rank_tasks, should_warn
 from pomodoro.recurrence import due_reminders
@@ -25,6 +26,7 @@ from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
 from pomodoro.ui.containers import SwitchPanel
 from pomodoro.ui.goals_tab import GoalsTab
+from pomodoro.ui.growth_tab import GrowthTab
 from pomodoro.ui.help_dialog import HelpDialog
 from pomodoro.ui.reports_tab import ReportsTab
 from pomodoro.ui.review_tab import ReviewTab
@@ -121,6 +123,8 @@ class PomodoroApp:
         self.reports_panel.addTab(self.reports_tab, "Effort")
         self.reports_panel.addTab(self.deadlines_tab, "Deadlines")
         self.reports_panel.addTab(self.review_tab, "Weekly review")
+        self.growth_tab = GrowthTab(db)
+        self.reports_panel.addTab(self.growth_tab, "Growth")
         self.reports_panel.currentChanged.connect(lambda _: self._refresh_open_tab())
 
         tabs = self.window.tabs
@@ -148,6 +152,8 @@ class PomodoroApp:
         self._reminded: set[int] = set()          # occurrences already reminded today
         self._last_reminder_check = datetime.min
         db.on_task_done.append(self._on_task_done)
+        db.on_task_done.append(self._ask_stretch)
+        self.window.set_practice_skills(db.practice_skills())
         self._told_about_tray = False
 
         self.window.settings_button.clicked.connect(self.open_settings)
@@ -269,7 +275,8 @@ class PomodoroApp:
         """Open tasks, best next task first (see pomodoro/priority.py)."""
         return rank_tasks(self.db.list_tasks("open"), date.today(),
                           self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
-                          self.db.get_working_days(), self.weights(), self.reserved_time())
+                          self.db.get_working_days(), self.weights(), self.reserved_time(),
+                          energy_now=growth.energy_now(self.db))
 
     def reserved_time(self, days: int = 14) -> list[dict]:
         """Upcoming recurring occurrences (next two weeks), as task-like rows."""
@@ -477,6 +484,7 @@ class PomodoroApp:
 
     def _on_phase_finished(self, record: PhaseRecord):
         is_focus = record.phase == Phase.FOCUS
+        practice = self.window.practice()
         if record.completed or record.elapsed_seconds >= MIN_LOGGED_SECONDS:
             session_id = self.db.add_session(
                 kind=record.phase.value,
@@ -485,7 +493,11 @@ class PomodoroApp:
                 duration_min=record.elapsed_seconds / 60,
                 completed=record.completed,
                 task_id=self.focus_task_id if is_focus else None,
+                practice_skill=practice[0] if is_focus else None,
+                practice_target=practice[1] if is_focus else None,
             )
+            if is_focus and practice[0]:
+                self._ask_practice_difficulty(session_id, practice[0])
             if is_focus and not record.completed:
                 # Stopped early: log it, then ask why (one click, can be skipped).
                 lost = self.timer.settings.focus_minutes - record.elapsed_seconds / 60
@@ -597,7 +609,7 @@ class PomodoroApp:
         elif current is self.reports_panel:
             current = self.reports_panel.currentWidget()
         if current in (self.today_tab, self.todo_tab, self.tasks_tab, self.goals_tab,
-                       self.reports_tab, self.deadlines_tab, self.review_tab):
+                       self.reports_tab, self.deadlines_tab, self.review_tab, self.growth_tab):
             current.refresh()
 
     def _refresh_focus_next(self):
@@ -656,6 +668,25 @@ class PomodoroApp:
             return
         self.db.set_anomaly_reason(anomaly, reason)
         self.window.show_hint(f"Noted: {ANOMALY_REASONS[reason]}. Reports show your top causes.")
+
+    # ---------- growth: stretch rating and practice ----------
+
+    def _ask_stretch(self, task_id: int):
+        """One click after finishing a task: how did it feel? (comfort / stretch / panic)"""
+        task = self.db.get_task(task_id)
+        if not task or task["recurrence_id"]:
+            return                                 # routines and habits aren't rated
+        self.window.prompt_bar.ask(
+            f"Done: “{task['title']}” – how did it feel?",
+            [(label, key) for key, label in STRETCH.items()],
+            lambda value: self.db.set_stretch(task_id, value))
+
+    def _ask_practice_difficulty(self, session_id: int, skill: str):
+        self.window.set_practice_skills(self.db.practice_skills())
+        self.window.prompt_bar.ask(
+            f"🎯 Practice on {skill} – how hard was it?",
+            [("1 easy", 1), ("2", 2), ("3", 3), ("4", 4), ("5 very hard", 5)],
+            lambda value: self.db.set_session_difficulty(session_id, value))
 
     # ---------- habits: reminders and stacking ----------
 

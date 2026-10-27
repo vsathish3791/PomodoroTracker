@@ -20,6 +20,7 @@ WEIGHT_LABELS = [
     ("within_3_days", "Due within 3 days"), ("within_7_days", "Due within 7 days"),
     ("at_risk", "At risk (bonus)"),
     ("never_miss_twice", "Missed last time"),
+    ("energy_match", "Fits the time of day"),
 ]
 
 
