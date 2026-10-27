@@ -57,7 +57,9 @@ class MainWindow(QMainWindow):
         self.mini_button = QPushButton("⧉ Mini timer", objectName="small")
         self.mini_button.setToolTip("Show a small always-on-top timer")
         self.settings_button = QPushButton("⚙ Settings", objectName="small")
-        for button in (self.mini_button, self.settings_button):
+        self.help_button = QPushButton("? Help", objectName="small")
+        self.help_button.setToolTip("How the app works (F1)")
+        for button in (self.mini_button, self.settings_button, self.help_button):
             button.setCursor(Qt.PointingHandCursor)
             corner_layout.addWidget(button)
         self.tabs.setCornerWidget(corner, Qt.TopRightCorner)

@@ -6,9 +6,9 @@ from pathlib import Path
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QPoint, QTimer
-from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QTabWidget
 
 from pomodoro import __version__
 from pomodoro.database import Database
@@ -23,9 +23,13 @@ from pomodoro.ui.mini_window import MiniWindow
 from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
+from pomodoro.ui.containers import SwitchPanel
 from pomodoro.ui.goals_tab import GoalsTab
+from pomodoro.ui.help_dialog import HelpDialog
 from pomodoro.ui.reports_tab import ReportsTab
+from pomodoro.ui.review_tab import ReviewTab
 from pomodoro.ui.tasks_tab import TasksTab
+from pomodoro.ui.today_tab import TodayTab
 from pomodoro.ui.todo_tab import TodoTab
 from pomodoro.ui.theme import PHASE_COLORS, make_icon
 from pomodoro.ui.tray import TrayIcon
@@ -77,37 +81,55 @@ class PomodoroApp:
         self.timer_project.project_created.connect(lambda _: self._on_tasks_changed())
         self.window.task_row.addWidget(self.timer_project)
 
+        def score_order():
+            return {s.id: n for n, s in enumerate(self.rank())}
+
+        # Main tabs: Timer · Today · To-Do (list | table) · Goals · Reports
+        self.today_tab = TodayTab(db)
+        self.today_tab.score_order = score_order
+        self.today_tab.start_requested.connect(self.start_task)
+
         self.tasks_tab = TasksTab(db)
         self.tasks_tab.rank_lookup = lambda: {s.id: s for s in self.rank()}
         self.tasks_tab.start_requested.connect(self.start_task)
         self.tasks_tab.tasks_changed.connect(self._on_tasks_changed)
-        self.window.tabs.addTab(self.tasks_tab, "Tasks")
 
-        # Focus To-Do style list view, right after the Timer tab
         self.todo_tab = TodoTab(db)
-        self.todo_tab.score_order = lambda: {s.id: n for n, s in enumerate(self.rank())}
+        self.todo_tab.score_order = score_order
         self.todo_tab.start_requested.connect(self.start_task)
         self.todo_tab.tasks_changed.connect(self._on_tasks_changed)
         self.todo_tab.tasks_changed.connect(self.tasks_tab.refresh)
-        self.window.tabs.insertTab(1, self.todo_tab, "To-Do")
-
-        self.deadlines_tab = DeadlinesTab()
-        self.deadlines_tab.plan_provider = lambda: (
-            self.rank(), self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
-            self.db.get_working_days(), self.reserved_time())
-        self.deadlines_tab.start_requested.connect(self.start_task)
-        self.window.tabs.addTab(self.deadlines_tab, "Deadlines")
+        self.today_tab.tasks_changed.connect(self._on_tasks_changed)
+        self.today_tab.tasks_changed.connect(self.tasks_tab.refresh)
+        self.todo_panel = SwitchPanel([("☰ List", self.todo_tab), ("▦ Table", self.tasks_tab)])
+        self.todo_panel.changed.connect(lambda _: self._refresh_open_tab())
 
         self.goals_tab = GoalsTab(db)
-        self.window.tabs.addTab(self.goals_tab, "Goals")
 
         self.reports_tab = ReportsTab(db)
         self.reports_tab.tasks_changed.connect(self._on_tasks_changed)
         self.reports_tab.tasks_changed.connect(self.todo_tab.refresh)
         self.reports_tab.tasks_changed.connect(self.tasks_tab.refresh)
-        self.window.tabs.addTab(self.reports_tab, "Reports")
-        # Reports and Deadlines are redrawn when you open them.
-        self.window.tabs.currentChanged.connect(lambda _: self._refresh_open_tab())
+        self.deadlines_tab = DeadlinesTab()
+        self.deadlines_tab.plan_provider = lambda: (
+            self.rank(), self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
+            self.db.get_working_days(), self.reserved_time())
+        self.deadlines_tab.start_requested.connect(self.start_task)
+        self.review_tab = ReviewTab(db)
+        self.reports_panel = QTabWidget(objectName="subTabs")
+        self.reports_panel.setDocumentMode(True)
+        self.reports_panel.addTab(self.reports_tab, "Effort")
+        self.reports_panel.addTab(self.deadlines_tab, "Deadlines")
+        self.reports_panel.addTab(self.review_tab, "Weekly review")
+        self.reports_panel.currentChanged.connect(lambda _: self._refresh_open_tab())
+
+        tabs = self.window.tabs
+        tabs.insertTab(1, self.today_tab, "Today")
+        tabs.insertTab(2, self.todo_panel, "To-Do")
+        tabs.addTab(self.goals_tab, "Goals")
+        tabs.addTab(self.reports_panel, "Reports")
+        # Views are redrawn when you open them.
+        tabs.currentChanged.connect(lambda _: self._refresh_open_tab())
 
         self.tray = None
         if QSystemTrayIcon.isSystemTrayAvailable():
@@ -117,6 +139,7 @@ class PomodoroApp:
             self.tray.skip_phase.connect(self.timer.skip)
             self.tray.toggle_mini.connect(self.toggle_mini)
             self.tray.open_settings.connect(self.open_settings)
+            self.tray.open_help.connect(self.show_help)
             self.tray.quit_app.connect(self.quit)
             self.tray.messageClicked.connect(self._on_notification_clicked)
             self.tray.show()
@@ -128,6 +151,8 @@ class PomodoroApp:
         self._told_about_tray = False
 
         self.window.settings_button.clicked.connect(self.open_settings)
+        self.window.help_button.clicked.connect(self.show_help)
+        QShortcut(QKeySequence("F1"), self.window, activated=self.show_help)
         self.window.mini_button.clicked.connect(self.toggle_mini)
 
         # Small always-on-top timer
@@ -165,6 +190,10 @@ class PomodoroApp:
         QTimer.singleShot(1500, self._maybe_show_daily_summary)
 
     # ---------- settings, mini timer, shortcut ----------
+
+    def show_help(self):
+        self.show_window()
+        HelpDialog(self.window).exec()
 
     def open_settings(self):
         self.show_window()
@@ -563,7 +592,12 @@ class PomodoroApp:
 
     def _refresh_open_tab(self):
         current = self.window.tabs.currentWidget()
-        if current in (self.reports_tab, self.deadlines_tab, self.todo_tab, self.goals_tab):
+        if current is self.todo_panel:
+            current = self.todo_panel.current()
+        elif current is self.reports_panel:
+            current = self.reports_panel.currentWidget()
+        if current in (self.today_tab, self.todo_tab, self.tasks_tab, self.goals_tab,
+                       self.reports_tab, self.deadlines_tab, self.review_tab):
             current.refresh()
 
     def _refresh_focus_next(self):

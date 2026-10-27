@@ -49,6 +49,24 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Today, close the day, weekly review, in-app guide (v1.7)
+
+Tabs are now **Timer · Today · To-Do · Goals · Reports**.
+
+- **Today**: routines & habits for today (by cue time), today's planned focus tasks, a
+  **capacity** bar (still to do vs. what your daily goal leaves) and goals at a glance.
+  - **☀ Plan my day...** - tick a few focus tasks (best first); it warns when they won't
+    fit. Planning doesn't change due dates.
+  - **☾ Close the day...** - today's numbers, give reasons to open events, move
+    unfinished planned tasks to tomorrow, **Plan tomorrow...**, **Copy for Notion
+    Journal** (the numbers for "What happened?") and **Open Notion Journal**.
+- **To-Do**: switch between **☰ List** and **▦ Table** (the old Tasks tab).
+- **Reports**: **Effort** (all charts), **Deadlines** (board + 7-day workload) and
+  **Weekly review** - Falconi's three-generation report (Planned -> Done & results ->
+  Problems & next actions), **Copy for Notion** or **Save as...** Markdown.
+- **? Help** (or **F1**, or the tray menu): a short guide to every feature -
+  `pomodoro/USER_GUIDE.md`.
+
 ### Goals and the control panel (v1.6)
 
 A new **Goals** tab (Falconi: control items with targets; Clear: systems over goals):
@@ -289,6 +307,10 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/ui/history_strip.py` | Day-by-day strip for a recurring task |
 | `pomodoro/goals.py` | Goals, control panel, time split, learned estimates - plain Python |
 | `pomodoro/ui/goals_tab.py` | The Goals tab |
+| `pomodoro/planning.py` | Day plan, capacity, day summary, weekly three-generation report |
+| `pomodoro/ui/today_tab.py` | The Today tab, Plan my day, Close the day |
+| `pomodoro/ui/review_tab.py` | Weekly review |
+| `pomodoro/USER_GUIDE.md`, `pomodoro/ui/help_dialog.py` | The in-app guide |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
 | `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |

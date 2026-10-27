@@ -151,6 +151,7 @@ DEFAULT_SETTINGS = {
     "mini_window_pos": "",          # "x,y" of the mini timer
     "last_project_id": "",          # project picked most recently for a new task
     "nature_targets": "{}",         # target split Routine/Habit/Improvement in % (JSON)
+    "notion_journal_url": "",       # your Notion Journal database (opened from Close the day)
     "sound_enabled": "1",
 }
 
@@ -198,7 +199,8 @@ class Database:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN notion_url TEXT")
             for column, kind in [("recurrence_id", "INTEGER REFERENCES recurrences(id)"),
                                  ("occurrence_date", "TEXT"), ("nature", "TEXT"),
-                                 ("checklist", "TEXT"), ("checklist_done", "TEXT")]:
+                                 ("checklist", "TEXT"), ("checklist_done", "TEXT"),
+                                 ("planned_date", "TEXT")]:   # v1.7: planned for a day
                 if column not in columns:     # v1.3: recurring tasks, kind of work, checklists
                     self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {kind}")
             if "showed_up" not in columns:    # v1.4: done via the two-minute version
@@ -679,6 +681,12 @@ class Database:
             sql += ("ORDER BY t.status = 'done', t.priority, "
                     "t.due_date IS NULL, t.due_date, t.created_at")
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
+
+    def plan_task(self, task_id: int, day: date | None):
+        """Put a task on a day's plan (None = take it off). Its due date is untouched."""
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET planned_date = ? WHERE id = ?",
+                              (day.isoformat() if day else None, task_id))
 
     def set_checklist_done(self, task_id: int, done_steps: list[int]):
         """Remember which checklist steps (by position) are ticked for this task."""

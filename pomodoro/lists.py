@@ -52,6 +52,11 @@ def matches(view: str, task: dict, today: date) -> bool:
         return True
     if view == "recurring":
         return task.get("recurrence_id") is not None
+    planned = task.get("planned_date")
+    if view == "today" and planned == today.isoformat():
+        return True                       # on today's plan, whatever its due date
+    if view == "tomorrow" and planned == (today + timedelta(days=1)).isoformat():
+        return True
     if due is None:
         return False
     if view == "today":

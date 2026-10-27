@@ -120,6 +120,10 @@ QLabel#reasonTitle { font-size: 12px; font-weight: 600; color: #8A4B08; backgrou
 QPushButton#chip { font-size: 12px; padding: 2px 6px; border-radius: 12px; background: white;
                    border: 1px solid #E8C99A; color: #5C3A0A; }
 QPushButton#chip:hover { background: #FFE8C7; }
+QPushButton#segment { font-size: 12px; padding: 4px 12px; border: 1px solid #D9D9E0;
+                      background: white; color: #60646C; border-radius: 0; }
+QPushButton#segment:checked { background: #1C2024; color: white; border-color: #1C2024; }
+QTabWidget#subTabs QTabBar::tab { padding: 6px 16px; font-size: 12px; }
 QLabel#intention { font-size: 12px; color: #18794E; background: #EAF7EF; border-radius: 6px;
                    padding: 6px 8px; }
 QLabel#todoMeta { font-size: 12px; }

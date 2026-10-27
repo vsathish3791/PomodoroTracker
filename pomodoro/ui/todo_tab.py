@@ -36,6 +36,16 @@ SMART_ICONS = {   # symbol and tint for each smart list
 }
 
 
+def add_repeat_text(db: Database, tasks: list[dict]):
+    """Give recurring occurrences a short label for their row, e.g. 'Every working day'."""
+    labels = {r["id"]: FREQUENCIES[r["frequency"]] if r["frequency"] != "daily"
+              else ("Every working day" if r["workdays_only"] else "Daily")
+              for r in db.list_recurrences()}
+    for task in tasks:
+        if task.get("recurrence_id"):
+            task["repeat_text"] = labels.get(task["recurrence_id"])
+
+
 def checklist_steps(task: dict) -> list[str]:
     return [s for s in (task.get("checklist") or "").splitlines() if s.strip()]
 
@@ -564,12 +574,7 @@ class TodoTab(QWidget):
             self._show_recurring()
             return
 
-        self._repeat_text = {r["id"]: FREQUENCIES[r["frequency"]] if r["frequency"] != "daily"
-                             else ("Every working day" if r["workdays_only"] else "Daily")
-                             for r in self.db.list_recurrences()}
-        for task in content.open_tasks + content.done_tasks:
-            if task.get("recurrence_id"):
-                task["repeat_text"] = self._repeat_text.get(task["recurrence_id"])
+        add_repeat_text(self.db, content.open_tasks + content.done_tasks)
         open_tasks = lists.sort_tasks(content.open_tasks, self.sort, self.score_order())
         in_project = self.current.startswith("project:") and not search
         focus = self.db.get_int("focus_minutes")

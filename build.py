@@ -45,6 +45,9 @@ def build_exe():
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed",
         "--name", "PomodoroTracker", "--icon", str(ICON),
+        # The in-app guide and the icon travel with the app.
+        "--add-data", f"{ROOT / 'pomodoro' / 'USER_GUIDE.md'}{os.pathsep}pomodoro",
+        "--add-data", f"{ICON}{os.pathsep}assets",
         # Only Core/Gui/Widgets/Network are used; leave the big unused Qt parts out.
         "--exclude-module", "PySide6.QtWebEngineCore", "--exclude-module", "PySide6.QtQml",
         "--exclude-module", "PySide6.QtQuick", "--exclude-module", "PySide6.Qt3DCore",
