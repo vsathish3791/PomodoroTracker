@@ -23,6 +23,33 @@ CLOSED_STATUSES = ("done", "missed")
 # change things; Clear: habits = small repeated actions that shape who you become).
 NATURES = {"routine": "Routine", "habit": "Habit", "improvement": "Improvement"}
 NATURE_ICONS = {"routine": "🔁", "habit": "🌱", "improvement": "🚀"}
+NATURE_HINTS = {
+    "routine": "Keeps things running; it comes back and others rely on it "
+               "(e.g. weekly status report).",
+    "habit": "A small repeated action for your own growth (e.g. learn AI 1 pomodoro a day).",
+    "improvement": "One-off work that moves something forward (e.g. design the analytics hub).",
+}
+
+# Anomalies (Falconi): things that went off-plan, so their causes can be found.
+ANOMALY_KINDS = {
+    "stopped": "Stopped early",
+    "distraction": "Distraction",
+    "missed": "Missed recurring task",
+    "late": "Finished late",
+}
+ANOMALY_REASONS = {
+    "interrupted": "Interrupted",
+    "meeting": "Meeting",
+    "underestimated": "Underestimated",
+    "unclear": "Unclear requirement",
+    "low_energy": "Low energy",
+    "tools": "Tools / tech issue",
+    "other": "Other",
+}
+# Short labels for the one-click buttons on the Timer tab
+REASON_CHIPS = {"interrupted": "Interrupted", "meeting": "Meeting",
+                "underestimated": "Underestimated", "unclear": "Unclear",
+                "low_energy": "Low energy", "tools": "Tech issue", "other": "Other"}
 
 # When in the day a task suits you best (from your Notion Tasks Tracker).
 ENERGY_SLOTS = {

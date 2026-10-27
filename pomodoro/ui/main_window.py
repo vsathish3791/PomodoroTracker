@@ -2,10 +2,11 @@
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QComboBox, QCompleter, QHBoxLayout, QLabel, QMainWindow,
-                               QFrame, QProgressBar, QPushButton, QScrollArea, QTabWidget,
+from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                               QMainWindow, QProgressBar, QPushButton, QScrollArea, QTabWidget,
                                QVBoxLayout, QWidget)
 
+from pomodoro.models import ANOMALY_REASONS, REASON_CHIPS
 from pomodoro.timer import Phase
 from pomodoro.ui.focus_next import FocusNextPanel
 from pomodoro.ui.theme import PHASE_COLORS, STYLESHEET
@@ -19,6 +20,8 @@ def format_mmss(seconds: float) -> str:
 class MainWindow(QMainWindow):
     # Emitted when the user closes the window; the app decides whether to hide to tray.
     close_requested = Signal()
+    # A reason was picked for a pomodoro that stopped early (None = skipped).
+    reason_chosen = Signal(object)
     # Emitted when the user presses Enter in the task box.
     task_entered = Signal()
 
@@ -42,6 +45,7 @@ class MainWindow(QMainWindow):
         wrapper = QWidget(objectName="timerWrapper")
         wrapper.setLayout(timer_page)
         root.setFixedWidth(480)
+        self.timer_root = root
         # Scrolls on short screens, so nothing is ever cut off.
         timer_scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.NoFrame)
         timer_scroll.setWidget(wrapper)
@@ -108,6 +112,39 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress)
         layout.addSpacing(10)
         layout.addLayout(buttons)
+
+        # One click while focusing: "I got distracted" (counted, timer keeps going).
+        self.distraction_button = QPushButton("⚡ I got distracted", objectName="small")
+        self.distraction_button.setCursor(Qt.PointingHandCursor)
+        self.distraction_button.setToolTip("Log a distraction without stopping the timer. "
+                                           "Reports show what interrupts you most.")
+        self.distraction_button.hide()
+        distraction_row = QHBoxLayout()
+        distraction_row.addStretch()
+        distraction_row.addWidget(self.distraction_button)
+        distraction_row.addStretch()
+        layout.addLayout(distraction_row)
+
+        # After stopping early: "What got in the way?" with one-click reasons.
+        self.reason_bar = QFrame(objectName="reasonBar")
+        reason_layout = QVBoxLayout(self.reason_bar)
+        reason_layout.setContentsMargins(10, 8, 10, 8)
+        reason_layout.setSpacing(6)
+        reason_layout.addWidget(QLabel("Pomodoro stopped early – what got in the way?",
+                                       objectName="reasonTitle"))
+        chips = QGridLayout()
+        chips.setSpacing(6)
+        for i, (key, label) in enumerate([*REASON_CHIPS.items(), (None, "Skip")]):
+            chip = QPushButton(label, objectName="chip")
+            chip.setMinimumHeight(28)
+            if key:
+                chip.setToolTip(ANOMALY_REASONS[key])
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.clicked.connect(lambda _=False, k=key: self.reason_chosen.emit(k))
+            chips.addWidget(chip, i // 4, i % 4)
+        reason_layout.addLayout(chips)
+        self.reason_bar.hide()
+        layout.addWidget(self.reason_bar)
         layout.addSpacing(4)
         layout.addWidget(self.stats_label)
         layout.addWidget(self.hint_label)
@@ -159,6 +196,15 @@ class MainWindow(QMainWindow):
         hours, minutes = divmod(focus_minutes, 60)
         focused = f"{hours} h {minutes} min" if hours else f"{minutes} min"
         self.stats_label.setText(f"Today:  🍅 {pomodoros} / {goal}   ·   {focused} focused")
+
+    def fit_timer_page(self):
+        """Let the Timer page grow (and scroll) instead of squashing Focus Next."""
+        self.timer_root.setMinimumHeight(self.timer_root.sizeHint().height())
+
+    def show_distractions(self, visible: bool, count: int = 0):
+        self.distraction_button.setVisible(visible)
+        self.distraction_button.setText(f"⚡ I got distracted ({count})" if count
+                                         else "⚡ I got distracted")
 
     def show_hint(self, text: str, warning: bool = False):
         self.hint_label.setText(text)

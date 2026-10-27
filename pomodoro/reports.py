@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from pomodoro.database import Database
-from pomodoro.models import CATEGORY_PALETTE, NATURES, PRIORITIES, STATUSES
+from pomodoro.models import (ANOMALY_KINDS, ANOMALY_REASONS, CATEGORY_PALETTE, NATURES,
+                             PRIORITIES, STATUSES)
 from pomodoro.priority import ScoredTask, capacity_until
 
 UNASSIGNED = "Unassigned"
@@ -175,6 +176,45 @@ def recurring_summary(db: Database, start: date, end: date) -> list[dict]:
         row["rate"] = row["done"] / finished if finished else None
         result.append(row)
     return result
+
+
+@dataclass
+class ParetoRow:
+    reason: str            # label
+    count: int
+    minutes_lost: float
+    share: float           # of all labelled events
+    cumulative: float      # running share, biggest causes first
+
+
+def anomaly_pareto(db: Database, start: date, end: date) -> tuple[list[ParetoRow], dict]:
+    """Causes of off-plan events in the period, biggest first (Pareto), and a summary.
+
+    Distractions without a reason count as "Distraction"; other unlabelled events are
+    left out of the chart and counted in summary['unlabelled'].
+    """
+    events = db.anomalies_between(start, end)
+    by_reason: dict[str, list] = {}
+    unlabelled = 0
+    for event in events:
+        if event["reason"]:
+            label = ANOMALY_REASONS[event["reason"]]
+        elif event["kind"] == "distraction":
+            label = "Distraction"
+        else:
+            unlabelled += 1
+            continue
+        by_reason.setdefault(label, []).append(event)
+    total = sum(len(v) for v in by_reason.values()) or 1
+    rows, running = [], 0
+    for label, items in sorted(by_reason.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        running += len(items)
+        rows.append(ParetoRow(label, len(items), sum(e["minutes_lost"] for e in items),
+                              len(items) / total, running / total))
+    summary = {kind: sum(1 for e in events if e["kind"] == kind) for kind in ANOMALY_KINDS}
+    summary["minutes_lost"] = round(sum(e["minutes_lost"] for e in events))
+    summary["unlabelled"] = unlabelled
+    return rows, summary
 
 
 # ---------- deadline board ----------

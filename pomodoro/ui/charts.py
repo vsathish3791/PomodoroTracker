@@ -57,8 +57,10 @@ class HBarChart(QWidget):
     LABEL_WIDTH = 120
     VALUE_WIDTH = 90
 
-    def __init__(self, empty_text: str = "No focus time in this period.", parent=None):
+    def __init__(self, empty_text: str = "No focus time in this period.", parent=None,
+                 value_width: int = VALUE_WIDTH):
         super().__init__(parent)
+        self.VALUE_WIDTH = value_width     # room for the text after each bar
         self.bars: list[Bar] = []
         self.empty_text = empty_text
         self.setMouseTracking(True)

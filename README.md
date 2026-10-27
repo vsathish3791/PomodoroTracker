@@ -49,6 +49,24 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Interruptions and misses (v1.5)
+
+Falconi's anomaly handling: find out why focus time is lost, then fix the biggest cause.
+
+- **Stopped a pomodoro early?** A small bar on the Timer asks *what got in the way?* -
+  one click: *Interrupted, Meeting, Underestimated, Unclear, Low energy, Tech issue,
+  Other* - or **Skip**. The lost minutes are recorded either way.
+- **⚡ I got distracted** appears while focusing: one click logs a distraction; the
+  timer keeps going and the button shows the count.
+- **Missed recurring tasks** and **tasks finished after their due date** are logged
+  automatically.
+- **Reports -> Interruptions & misses**: a **Pareto chart** of causes, biggest first,
+  with the *vital few* behind ~80% in red, plus minutes lost.
+  - **Label N events...** gives reasons to anything still without one.
+  - **Plan a countermeasure...** opens a new task for the top cause (e.g. a habit such
+    as *Teams on Do Not Disturb during pomodoros*). Write-ups belong in Notion.
+- The task form explains each **Kind of work** under the box.
+
 ### Habits: cues, stacking, streaks (v1.4)
 
 Based on *Atomic Habits*. These options appear in the task form when **Repeat** is on:

@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDialog
                                QVBoxLayout, QWidget)
 
 from pomodoro.database import Database
-from pomodoro.models import DEFAULT_PRIORITY, ENERGY_SLOTS, NATURES, PRIORITIES, STATUSES
+from pomodoro.models import (DEFAULT_PRIORITY, ENERGY_SLOTS, NATURE_HINTS, NATURES, PRIORITIES,
+                             STATUSES)
 from pomodoro.recurrence import DAY_NAMES, FREQUENCIES, Schedule, schedule_from_row
 from pomodoro.ui.project_picker import ProjectPicker
 
@@ -68,6 +69,9 @@ class TaskDialog(QDialog):
                                      "things forward")
         self._nature_touched = False
         self.nature_input.activated.connect(lambda _: setattr(self, "_nature_touched", True))
+        self.nature_hint = QLabel(objectName="cardNote", wordWrap=True)
+        self.nature_input.currentIndexChanged.connect(
+            lambda _: self.nature_hint.setText(NATURE_HINTS.get(self.nature_input.currentData(), "")))
 
         # Pick a category, or type a new name to create one.
         self.category_input = QComboBox(editable=True)
@@ -186,6 +190,7 @@ class TaskDialog(QDialog):
         form.addRow("Task", self.title_input)
         form.addRow("Project", self.project_input)
         form.addRow("Kind of work", self.nature_input)
+        form.addRow("", self.nature_hint)
         form.addRow("Category", self.category_input)
         form.addRow("Type", self.type_input)
         form.addRow("Priority", self.priority_input)
@@ -238,6 +243,7 @@ class TaskDialog(QDialog):
             signal.connect(lambda *_: self._update_intention())
 
         self._load(task)
+        self.nature_hint.setText(NATURE_HINTS.get(self.nature_input.currentData(), ""))
         self._update_repeat()
         self._update_intention()
         self._fit_to_screen(body)

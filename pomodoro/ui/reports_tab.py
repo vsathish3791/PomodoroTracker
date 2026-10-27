@@ -2,15 +2,16 @@
 
 from datetime import date, timedelta
 
-from PySide6.QtCore import QDate, Qt
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDateEdit, QFileDialog, QFrame,
-                               QGridLayout, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
+from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDateEdit, QDialog,
+                               QDialogButtonBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QHeaderView, QLabel, QMessageBox,
                                QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
 from pomodoro import reports
 from pomodoro.database import Database
-from pomodoro.models import CATEGORY_PALETTE, EXTRA_CATEGORY_COLOR
+from pomodoro.models import ANOMALY_KINDS, ANOMALY_REASONS, CATEGORY_PALETTE, EXTRA_CATEGORY_COLOR
 from pomodoro.ui.charts import Bar, ColumnChart, HBarChart
 
 RANGES = ["Today", "This week", "Last 7 days", "This month", "Last 30 days", "Custom"]
@@ -73,7 +74,51 @@ class Card(QFrame):
         layout.addStretch()   # keep the title at the top when the card is taller
 
 
+class LabelDialog(QDialog):
+    """Give reasons to off-plan events that don't have one yet."""
+
+    def __init__(self, db: Database, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.setWindowTitle("What got in the way?")
+        self.setMinimumWidth(620)
+        self.events = db.unlabelled_anomalies()
+        self.table = QTableWidget(len(self.events), 4)
+        self.table.setHorizontalHeaderLabels(["When", "What happened", "Task", "Reason"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.pickers = []
+        for row, event in enumerate(self.events):
+            when = event["happened_at"][:16].replace("T", " ")
+            for column, text in enumerate([when, ANOMALY_KINDS[event["kind"]],
+                                           event["title"] or "–"]):
+                self.table.setItem(row, column, QTableWidgetItem(text))
+            picker = QComboBox()
+            picker.addItem("Not now", None)
+            for key, label in ANOMALY_REASONS.items():
+                picker.addItem(label, key)
+            self.table.setCellWidget(row, 3, picker)
+            self.pickers.append(picker)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("One reason each is enough. Leave 'Not now' to decide later.",
+                                objectName="cardNote"))
+        layout.addWidget(self.table)
+        layout.addWidget(buttons)
+
+    def _save(self):
+        for event, picker in zip(self.events, self.pickers):
+            if picker.currentData():
+                self.db.set_anomaly_reason(event["id"], picker.currentData())
+        self.accept()
+
+
 class ReportsTab(QWidget):
+    tasks_changed = Signal()       # a countermeasure task was added
+
     def __init__(self, db: Database, parent=None):
         super().__init__(parent)
         self.db = db
@@ -112,6 +157,25 @@ class ReportsTab(QWidget):
         # ----- charts -----
         self.category_chart = HBarChart()
         self.project_chart = HBarChart()
+        # Interruptions & misses (Pareto)
+        self.pareto_chart = HBarChart(empty_text="Nothing off-plan in this period. 👍",
+                                      value_width=200)
+        self.anomaly_summary = QLabel(objectName="cardNote", wordWrap=True)
+        self.label_button = QPushButton("Label…")
+        self.label_button.clicked.connect(self._label_events)
+        self.counter_button = QPushButton("Plan a countermeasure…")
+        self.counter_button.clicked.connect(self._plan_countermeasure)
+        anomaly_box = QWidget()
+        anomaly_layout = QVBoxLayout(anomaly_box)
+        anomaly_layout.setContentsMargins(0, 0, 0, 0)
+        anomaly_layout.addWidget(self.anomaly_summary)
+        anomaly_layout.addWidget(self.pareto_chart)
+        anomaly_buttons = QHBoxLayout()
+        anomaly_buttons.addWidget(self.label_button)
+        anomaly_buttons.addWidget(self.counter_button)
+        anomaly_buttons.addStretch()
+        anomaly_layout.addLayout(anomaly_buttons)
+        self._top_cause = None
         self.nature_chart = HBarChart()
         self.recurring_table = QTableWidget(0, 5)
         self.recurring_table.setHorizontalHeaderLabels(["Recurring task", "Done", "Missed",
@@ -151,6 +215,9 @@ class ReportsTab(QWidget):
                             "Occurrences in this period."), 3, 0)
         grid.addWidget(Card("Estimate vs actual", self.estimate_table,
                             "Finished tasks that had an estimate."), 3, 1)
+        grid.addWidget(Card("Interruptions & misses", anomaly_box,
+                            "Why focus time was lost, biggest causes first. Red bars are "
+                            "the 'vital few' behind ~80% of it: fix those first."), 4, 0, 1, 2)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
@@ -236,6 +303,7 @@ class ReportsTab(QWidget):
             reports.effort_by(self.db, start, end, "category"), lambda r: r.color or grey))
         self.project_chart.set_bars(self._bars(
             reports.effort_by(self.db, start, end, "project"), lambda r: r.color or grey))
+        self._show_anomalies(start, end)
         self.nature_chart.set_bars(self._bars(
             reports.effort_by(self.db, start, end, "nature"), lambda r: r.color or grey))
         recurring = reports.recurring_summary(self.db, start, end)
@@ -279,6 +347,52 @@ class ReportsTab(QWidget):
                     item.setTextAlignment(Qt.AlignCenter)
                 self.estimate_table.setItem(i, column, item)
         self.estimate_table.setFixedHeight(36 + 30 * max(len(rows), 1))
+
+    # ---------- interruptions & misses ----------
+
+    def _show_anomalies(self, start, end):
+        rows, summary = reports.anomaly_pareto(self.db, start, end)
+        bars, vital = [], True
+        for row in rows:
+            bars.append(Bar(row.reason, row.count,
+                            CATEGORY_PALETTE[7] if vital else EXTRA_CATEGORY_COLOR,
+                            f"{row.reason}\n{row.count} times · {row.minutes_lost:.0f} min lost",
+                            f"{row.count}  ({row.share:.0%} · total {row.cumulative:.0%})"))
+            vital = vital and row.cumulative < 0.8
+        self.pareto_chart.set_bars(bars)
+        parts = []
+        if summary["stopped"]:
+            parts.append(f"{summary['stopped']} pomodoro(s) stopped early "
+                         f"({summary['minutes_lost']} min lost)")
+        if summary["distraction"]:
+            parts.append(f"{summary['distraction']} distraction(s)")
+        if summary["missed"]:
+            parts.append(f"{summary['missed']} missed recurring")
+        if summary["late"]:
+            parts.append(f"{summary['late']} finished late")
+        self.anomaly_summary.setText(" · ".join(parts) if parts else "")
+        waiting = len(self.db.unlabelled_anomalies())
+        self.label_button.setText(f"Label {waiting} event{'s' if waiting != 1 else ''}…")
+        self.label_button.setEnabled(waiting > 0)
+        self._top_cause = rows[0].reason if rows else None
+        self.counter_button.setEnabled(self._top_cause is not None)
+        if self._top_cause:
+            self.counter_button.setText(f"Plan a countermeasure for “{self._top_cause}”…")
+
+    def _label_events(self):
+        if LabelDialog(self.db, self).exec():
+            self.refresh()
+
+    def _plan_countermeasure(self):
+        """Falconi: every top cause gets a countermeasure. Often it's a new habit or routine."""
+        from pomodoro.ui.task_dialog import TaskDialog
+        dialog = TaskDialog(self.db, parent=self)
+        dialog.title_input.setText(f"Countermeasure: reduce “{self._top_cause}”")
+        dialog.notes_input.setPlainText(
+            "Ideas: block focus time in the calendar · Teams on Do Not Disturb during "
+            "pomodoros · split big tasks · clarify requirements before starting.")
+        if dialog.exec():
+            self.tasks_changed.emit()
 
     # ---------- export ----------
 

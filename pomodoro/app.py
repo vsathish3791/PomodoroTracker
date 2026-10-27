@@ -13,7 +13,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 from pomodoro import __version__
 from pomodoro.database import Database
 from pomodoro.hotkey import GlobalHotkey
-from pomodoro.models import ENERGY_SHORT, PRIORITIES, due_label, pomodoro_progress
+from pomodoro.models import (ANOMALY_REASONS, ENERGY_SHORT, PRIORITIES, due_label,
+                             pomodoro_progress)
 from pomodoro.priority import ScoredTask, ScoreWeights, day_summary, rank_tasks, should_warn
 from pomodoro.recurrence import due_reminders
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
@@ -59,6 +60,9 @@ class PomodoroApp:
         self.window.start_button.clicked.connect(self.start_or_pause)
         self.window.task_entered.connect(self._on_task_entered)
         self.window.skip_button.clicked.connect(self.timer.skip)
+        self.window.distraction_button.clicked.connect(self._log_distraction)
+        self.window.reason_chosen.connect(self._on_reason_chosen)
+        self._pending_anomaly: int | None = None   # stopped-early event awaiting a reason
         self.window.stop_button.clicked.connect(self.timer.stop)
         self.window.close_requested.connect(self._on_close_requested)
         self.window.mark_done_button.clicked.connect(self.mark_current_task_done)
@@ -94,6 +98,9 @@ class PomodoroApp:
         self.window.tabs.addTab(self.deadlines_tab, "Deadlines")
 
         self.reports_tab = ReportsTab(db)
+        self.reports_tab.tasks_changed.connect(self._on_tasks_changed)
+        self.reports_tab.tasks_changed.connect(self.todo_tab.refresh)
+        self.reports_tab.tasks_changed.connect(self.tasks_tab.refresh)
         self.window.tabs.addTab(self.reports_tab, "Reports")
         # Reports and Deadlines are redrawn when you open them.
         self.window.tabs.currentChanged.connect(lambda _: self._refresh_open_tab())
@@ -427,6 +434,10 @@ class PomodoroApp:
             hint = f"Press Start when you're ready for the {what}."
         self.window.show_hint(hint)
         self.window.set_task_locked(phase == Phase.FOCUS and self.timer.started)
+        focusing = phase == Phase.FOCUS and self.timer.started
+        self.window.show_distractions(focusing, self._distractions_now() if focusing else 0)
+        if focusing:
+            self.window.reason_bar.hide()       # a new pomodoro: don't ask about the old one
         self._refresh_task_info()
         self._refresh_focus_next()
         self._refresh_display()
@@ -434,7 +445,7 @@ class PomodoroApp:
     def _on_phase_finished(self, record: PhaseRecord):
         is_focus = record.phase == Phase.FOCUS
         if record.completed or record.elapsed_seconds >= MIN_LOGGED_SECONDS:
-            self.db.add_session(
+            session_id = self.db.add_session(
                 kind=record.phase.value,
                 start=record.start,
                 end=record.end,
@@ -442,6 +453,14 @@ class PomodoroApp:
                 completed=record.completed,
                 task_id=self.focus_task_id if is_focus else None,
             )
+            if is_focus and not record.completed:
+                # Stopped early: log it, then ask why (one click, can be skipped).
+                lost = self.timer.settings.focus_minutes - record.elapsed_seconds / 60
+                self._pending_anomaly = self.db.log_anomaly(
+                    "stopped", task_id=self.focus_task_id, session_id=session_id,
+                    minutes_lost=max(lost, 0))
+                self.window.reason_bar.show()
+                self.window.fit_timer_page()
             self._refresh_stats()
             self.tasks_tab.refresh()
         if is_focus and self.focus_task_id is not None:
@@ -547,6 +566,7 @@ class PomodoroApp:
         ranked = self.rank()
         self.window.focus_next.show_tasks(ranked, self._summary(ranked))
         self.window.focus_next.set_start_enabled(not self._focus_in_progress())
+        self.window.fit_timer_page()
         self._refresh_open_tab()
 
     def _on_tasks_changed(self):
@@ -575,6 +595,29 @@ class PomodoroApp:
             self.start_task(task_id)
         else:
             self.show_window()
+
+    # ---------- interruptions ----------
+
+    def _distractions_now(self) -> int:
+        start = self.timer._phase_start
+        return self.db.distractions_in_session(start.isoformat(timespec="seconds")) if start else 0
+
+    def _log_distraction(self):
+        self.db.log_anomaly("distraction", task_id=self.focus_task_id)
+        self.window.show_distractions(True, self._distractions_now())
+        self.window.show_hint("Distraction noted. Back to the task – the timer keeps going.")
+
+    def _on_reason_chosen(self, reason):
+        self.window.reason_bar.hide()
+        self.window.fit_timer_page()
+        anomaly, self._pending_anomaly = self._pending_anomaly, None
+        if anomaly is None:
+            return
+        if reason is None:
+            self.window.show_hint("Skipped. You can still label it in Reports.")
+            return
+        self.db.set_anomaly_reason(anomaly, reason)
+        self.window.show_hint(f"Noted: {ANOMALY_REASONS[reason]}. Reports show your top causes.")
 
     # ---------- habits: reminders and stacking ----------
 

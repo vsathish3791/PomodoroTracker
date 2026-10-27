@@ -16,7 +16,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
-                             DEFAULT_TYPES, ENERGY_SLOTS, EXTRA_CATEGORY_COLOR, NATURES,
+                             ANOMALY_KINDS, ANOMALY_REASONS, DEFAULT_TYPES, ENERGY_SLOTS,
+                             EXTRA_CATEGORY_COLOR, NATURES,
                              OLD_DEFAULT_COLORS, PRIORITIES, STATUSES)
 from pomodoro.recurrence import Schedule, parse_cue_time, schedule_from_row, streaks
 
@@ -97,6 +98,17 @@ CREATE TABLE IF NOT EXISTS overrides (
     chosen_task_id    INTEGER REFERENCES tasks(id),
     suggested_task_id INTEGER REFERENCES tasks(id),
     timestamp         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS anomalies (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind         TEXT NOT NULL,          -- stopped | distraction | missed | late (models.py)
+    task_id      INTEGER REFERENCES tasks(id),
+    session_id   INTEGER REFERENCES sessions(id),
+    reason       TEXT,                   -- models.ANOMALY_REASONS key; NULL = not labelled yet
+    note         TEXT,
+    minutes_lost REAL NOT NULL DEFAULT 0,
+    happened_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -574,6 +586,10 @@ class Database:
             self.conn.execute(f"UPDATE tasks SET {assignments} WHERE id = ?",
                               [*fields.values(), task_id])
         if newly_done:
+            task = self.get_task(task_id)
+            if task and task["due_date"] and task["due_date"][:10] < date.today().isoformat():
+                self.log_anomaly("late", task_id=task_id,
+                                 at=datetime.now().isoformat(timespec="seconds"))
             for callback in list(self.on_task_done):
                 callback(task_id)
 
@@ -768,6 +784,9 @@ class Database:
                 continue
             now = datetime.now().isoformat(timespec="seconds")
             with self.conn:
+                newly_missed = [r[0] for r in self.conn.execute(
+                    "SELECT id FROM tasks WHERE recurrence_id = ? "
+                    "AND status NOT IN ('done', 'missed')", (rec["id"],))]
                 self.conn.execute(
                     "UPDATE tasks SET status = 'missed', completed_at = NULL "
                     "WHERE recurrence_id = ? AND status NOT IN ('done', 'missed')", (rec["id"],))
@@ -776,10 +795,16 @@ class Database:
                     values.update(recurrence_id=rec["id"], occurrence_date=day.isoformat(),
                                   due_date=day.isoformat(), created_at=now,
                                   status="todo" if day == due[-1] else "missed")
-                    self.conn.execute(
+                    cursor = self.conn.execute(
                         f"INSERT INTO tasks ({', '.join(values)}) "
                         f"VALUES ({', '.join('?' * len(values))})", list(values.values()))
+                    if values["status"] == "missed":
+                        newly_missed.append(cursor.lastrowid)
                     created += 1
+            for task_id in newly_missed:
+                occurrence = self.conn.execute("SELECT occurrence_date FROM tasks WHERE id = ?",
+                                               (task_id,)).fetchone()[0]
+                self.log_anomaly("missed", task_id=task_id, at=f"{occurrence}T23:59:00")
         return created
 
     def upcoming_occurrences(self, first: date, last: date, today: date | None = None,
@@ -876,6 +901,55 @@ class Database:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM recurrences WHERE stack_after_id = ? AND active = 1",
             (recurrence_id,))]
+
+    # ---------- anomalies (interruptions, misses, late finishes) ----------
+
+    def log_anomaly(self, kind: str, task_id: int | None = None, session_id: int | None = None,
+                    reason: str | None = None, note: str | None = None,
+                    minutes_lost: float = 0, at: str | None = None) -> int:
+        if kind not in ANOMALY_KINDS:
+            raise ValueError(f"Kind must be one of {list(ANOMALY_KINDS)}")
+        if reason is not None and reason not in ANOMALY_REASONS:
+            raise ValueError(f"Reason must be one of {list(ANOMALY_REASONS)}")
+        with self.conn:
+            return self.conn.execute(
+                "INSERT INTO anomalies (kind, task_id, session_id, reason, note, minutes_lost, "
+                "happened_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (kind, task_id, session_id, reason, note, round(minutes_lost, 1),
+                 at or datetime.now().isoformat(timespec="seconds"))).lastrowid
+
+    def set_anomaly_reason(self, anomaly_id: int, reason: str | None, note: str | None = None):
+        if reason is not None and reason not in ANOMALY_REASONS:
+            raise ValueError(f"Reason must be one of {list(ANOMALY_REASONS)}")
+        with self.conn:
+            self.conn.execute("UPDATE anomalies SET reason = ?, note = COALESCE(?, note) "
+                              "WHERE id = ?", (reason, note, anomaly_id))
+
+    def unlabelled_anomalies(self, kinds=("stopped", "missed", "late")) -> list[dict]:
+        """Off-plan events still waiting for a reason, newest first. Distractions are
+        logged with one click and don't need one."""
+        marks = ", ".join("?" * len(kinds))
+        rows = self.conn.execute(
+            "SELECT a.*, t.title FROM anomalies a LEFT JOIN tasks t ON t.id = a.task_id "
+            f"WHERE a.reason IS NULL AND a.kind IN ({marks}) ORDER BY a.happened_at DESC",
+            list(kinds)).fetchall()
+        return [dict(r) for r in rows]
+
+    def anomalies_between(self, start: date, end: date) -> list[dict]:
+        begin = datetime.combine(start, datetime.min.time()).isoformat(timespec="seconds")
+        finish = datetime.combine(end + timedelta(days=1),
+                                  datetime.min.time()).isoformat(timespec="seconds")
+        rows = self.conn.execute(
+            "SELECT a.*, t.title FROM anomalies a LEFT JOIN tasks t ON t.id = a.task_id "
+            "WHERE a.happened_at >= ? AND a.happened_at < ? ORDER BY a.happened_at",
+            (begin, finish)).fetchall()
+        return [dict(r) for r in rows]
+
+    def distractions_in_session(self, since: str) -> int:
+        """Distractions logged since a time (the start of the current pomodoro)."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM anomalies WHERE kind = 'distraction' AND happened_at >= ?",
+            (since,)).fetchone()[0]
 
     def find_open_task(self, title: str) -> int | None:
         """Id of the open task with this title (case-insensitive, extra spaces ignored)."""

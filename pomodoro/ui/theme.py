@@ -115,6 +115,11 @@ QLabel#todoTitle { font-size: 14px; color: #1C2024; }
 QLabel#todoComing { font-size: 13px; color: #8B8D98; background: #F7F7F9; border-radius: 8px;
                     padding: 9px 14px; border: 1px dashed #E0E1E6; }
 QLabel#seriesIcon { font-size: 18px; background: transparent; }
+QFrame#reasonBar { background: #FFF4E5; border: 1px solid #F5D9B0; border-radius: 8px; }
+QLabel#reasonTitle { font-size: 12px; font-weight: 600; color: #8A4B08; background: transparent; }
+QPushButton#chip { font-size: 12px; padding: 2px 6px; border-radius: 12px; background: white;
+                   border: 1px solid #E8C99A; color: #5C3A0A; }
+QPushButton#chip:hover { background: #FFE8C7; }
 QLabel#intention { font-size: 12px; color: #18794E; background: #EAF7EF; border-radius: 6px;
                    padding: 6px 8px; }
 QLabel#todoMeta { font-size: 12px; }
