@@ -23,10 +23,10 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
    next tasks). Stopped early? Pick a reason in one click. Distracted? Click
    **⚡ I got distracted** – the timer keeps going.
 3. **Evening – Today → ☾ Close the day…** See today's numbers, move unfinished tasks to
-   tomorrow, plan tomorrow, and **Copy for Notion Journal** (the numbers for
-   "What happened?" – the reflection itself goes in Notion).
+   tomorrow, plan tomorrow, and **Send to Notion Journal** (or **Copy**) – the numbers for
+   "What happened?"; the reflection itself goes in Notion.
 4. **Weekly – Reports → Weekly review.** Planned → Done & results → Problems & next
-   actions. **Copy for Notion** or **Save as…**.
+   actions. **Send to Notion**, **Copy for Notion** or **Save as…**.
 
 ## Tasks
 
@@ -77,5 +77,10 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
 - **⚙ Settings**: timer lengths, daily goal, working days, categories & types, Focus Score
   points, and the global **Start/Pause shortcut** (default **Ctrl+Alt+P**, works from any
   app).
+- **⚙ Settings -> Notion** (optional): connect once so the Send buttons work. Create an
+  internal integration at notion.so/profile/integrations, paste its secret, add the
+  integration to your Journal database and weekly-reviews page (••• -> Connections),
+  paste their links and press **Test**. The app only sends numbers; it never changes
+  what you wrote.
 - Closing the window keeps the app running in the tray (right-click the tomato to quit).
-- Your data is stored in `%APPDATA%\PomodoroTracker\pomodoro.db`.
+- Your data is stored in `%APPDATA%\PomodoroTracker\pomodoro.db` – on your PC only.

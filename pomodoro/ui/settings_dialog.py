@@ -1,4 +1,5 @@
-"""Settings: timer lengths, daily goal, working days, Focus Score points and the shortcut."""
+"""Settings: timer lengths, daily goal, working days, Focus Score points, the shortcut and
+the optional Notion connection."""
 
 import json
 
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout
 from pomodoro.database import Database
 from pomodoro.priority import DEFAULT_WEIGHTS, ScoreWeights
 from pomodoro.ui.list_editor import editor_page
+from pomodoro.ui.notion_ui import NotionPage
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -48,6 +50,8 @@ class SettingsDialog(QDialog):
         tabs.addTab(self.lists_page, "Categories && Types")
         tabs.addTab(self._score_page(), "Focus Score")
         tabs.addTab(self._shortcut_page(), "Shortcut")
+        self.notion_page = NotionPage(db)
+        tabs.addTab(self.notion_page, "Notion")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
@@ -182,6 +186,10 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "Shortcut", "Press a key combination, or turn the "
                                                   "shortcut off.")
             return
+        problem = self.notion_page.values_ok()
+        if problem:
+            QMessageBox.warning(self, "Notion", problem)
+            return
 
         db = self.db
         db.set_setting("focus_minutes", self.focus_minutes.value())
@@ -199,4 +207,5 @@ class SettingsDialog(QDialog):
         db.set_setting("hotkey_enabled", self.hotkey_enabled.isChecked())
         if hotkey:
             db.set_setting("hotkey", hotkey)
+        self.notion_page.save()
         self.accept()

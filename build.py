@@ -1,11 +1,16 @@
-"""Build PomodoroTracker.exe and (if Inno Setup is installed) the Windows installer.
+"""Build PomodoroTracker.exe, a portable ZIP and (if Inno Setup is installed) the installer.
 
     .venv\\Scripts\\python build.py
 
 Steps:
   1. Draw the app icon to assets/icon.ico
   2. PyInstaller -> dist/PomodoroTracker/PomodoroTracker.exe (+ its files)
-  3. Inno Setup  -> installer_output/PomodoroTracker-Setup-<version>.exe
+  3. Portable    -> installer_output/PomodoroTracker-<version>-portable.zip
+                    (unzip anywhere and run PomodoroTracker.exe - nothing to install)
+  4. Inno Setup  -> installer_output/PomodoroTracker-Setup-<version>.exe
+
+The exe and installer aren't code-signed, so Windows SmartScreen warns ("More info ->
+Run anyway") and PCs with Smart App Control on block them - see README "Share it".
 """
 
 import os
@@ -59,6 +64,15 @@ def build_exe():
     print(f"App:       {exe}  (version {__version__})")
 
 
+def build_zip():
+    from pomodoro import __version__
+    out = ROOT / "installer_output"
+    out.mkdir(exist_ok=True)
+    base = out / f"PomodoroTracker-{__version__}-portable"
+    archive = shutil.make_archive(str(base), "zip", ROOT / "dist", "PomodoroTracker")
+    print(f"Portable:  {archive}")
+
+
 def build_installer():
     from pomodoro import __version__
     iscc = next((p for p in INNO_LOCATIONS if p.exists()), None)
@@ -75,4 +89,5 @@ if __name__ == "__main__":
     sys.path.insert(0, str(ROOT))
     make_icon()
     build_exe()
+    build_zip()
     build_installer()

@@ -152,6 +152,8 @@ DEFAULT_SETTINGS = {
     "last_project_id": "",          # project picked most recently for a new task
     "nature_targets": "{}",         # target split Routine/Habit/Improvement in % (JSON)
     "notion_journal_url": "",       # your Notion Journal database (opened from Close the day)
+    "notion_weekly_url": "",        # the Notion page that holds weekly reviews
+    "notion_token": "",             # Notion integration secret, encrypted (secret_store)
     "sound_enabled": "1",
 }
 

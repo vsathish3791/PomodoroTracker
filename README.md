@@ -3,7 +3,38 @@
 A Windows desktop pomodoro timer that tracks how many 25-minute focus blocks you
 spend on each task, built with Python and PySide6 (Qt).
 
-## Run it
+## Install it on your PC (or a friend's)
+
+Needs Windows 10/11 and Python 3.10+ ([python.org](https://www.python.org/downloads/),
+tick *Add python.exe to PATH*, or `winget install Python.Python.3.12`).
+
+1. Get the code: **Code -> Download ZIP** on GitHub and unzip it (e.g. to
+   `Documents\PomodoroTracker`), or `git clone` it.
+2. In that folder, run:
+
+   ```bash
+   powershell -ExecutionPolicy Bypass -File setup.ps1
+   ```
+
+   It creates `.venv`, installs PySide6 and adds **Pomodoro Tracker** to the desktop and
+   Start menu (add `-Startup` to start it when you sign in). Run it again after updating.
+
+Each person's tasks stay on their own PC in `%APPDATA%\PomodoroTracker\pomodoro.db`;
+nothing is shared or uploaded. The Notion connection is optional and per person.
+
+### Share it
+
+| Way | Good for | Notes |
+|---|---|---|
+| GitHub repo + `setup.ps1` | Anyone with Python | Works with Smart App Control on (uses signed Python). Repo must be public, or add people as collaborators. |
+| Portable ZIP from `build.py` | People without Python | Unzip, run `PomodoroTracker.exe`. Unsigned: SmartScreen warns (*More info -> Run anyway*); blocked where Smart App Control is on. |
+| Installer from `build.py` | Same as the ZIP | Adds shortcuts and an uninstaller. Same signing caveat. |
+
+Attach the ZIP and installer to a **GitHub Release** so people download them from one
+page. To remove the SmartScreen / Smart App Control problem the files have to be
+code-signed (e.g. Azure Trusted Signing, a paid certificate).
+
+## Run it from source
 
 ```bash
 python -m venv .venv
@@ -25,7 +56,8 @@ Run the tests:
 ```
 
 - `dist\PomodoroTracker\PomodoroTracker.exe` - the app, runnable without Python.
-- `installer_output\PomodoroTracker-Setup-1.2.1.exe` - the installer, built only if
+- `installer_output\PomodoroTracker-<version>-portable.zip` - the same app zipped, to share.
+- `installer_output\PomodoroTracker-Setup-<version>.exe` - the installer, built only if
   [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed
   (`winget install JRSoftware.InnoSetup`). It installs for your user only (no admin),
   adds Start menu and optional desktop shortcuts, can start the app when you sign in,
@@ -48,6 +80,19 @@ The app then runs straight from this folder: to update, change the code and rest
 Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed version.
 
 ## What works now
+
+### Notion connection and sharing (v1.9)
+
+- **Settings -> Notion** (optional): paste an internal integration secret, your Journal
+  database link and a weekly-reviews page link, press **Test**. The secret is encrypted
+  with Windows DPAPI (only your Windows account can read it).
+- **Close the day -> Send to Notion Journal** puts today's numbers in today's Journal
+  entry's *What happened?* (creates a *Daily* entry if there's none). Only the app's own
+  "Pomodoro Tracker –" line is replaced; your writing is never touched.
+- **Weekly review -> Send to Notion** creates the week's page under your weekly-reviews
+  page. Without a connection the Copy buttons work as before.
+- Sharing: `setup.ps1` (one-command install on another PC) and a portable ZIP from
+  `build.py`.
 
 ### Growth: stretch zone, best hours, practice, Then vs Now (v1.8)
 
@@ -330,6 +375,9 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/growth.py` | Best hours, stretch mix, practice, Then vs Now - plain Python |
 | `pomodoro/ui/growth_tab.py`, `pomodoro/ui/prompt_bar.py` | Growth report; one-click bottom bar |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
+| `pomodoro/notion.py`, `pomodoro/ui/notion_ui.py` | Optional Notion connection (Journal, weekly page) |
+| `pomodoro/secret_store.py` | Encrypts the Notion secret (Windows DPAPI) |
+| `setup.ps1`, `create_shortcuts.ps1` | Install on a PC from source; shortcuts |
 | `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |
 | `pomodoro/hotkey.py` | System-wide keyboard shortcut (Windows) |
