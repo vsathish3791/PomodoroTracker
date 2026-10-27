@@ -13,10 +13,12 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from pomodoro.database import Database
-from pomodoro.models import PRIORITIES, STATUSES
+from pomodoro.models import CATEGORY_PALETTE, NATURES, PRIORITIES, STATUSES
 from pomodoro.priority import ScoredTask, capacity_until
 
 UNASSIGNED = "Unassigned"
+NATURE_COLORS = {"routine": CATEGORY_PALETTE[2], "habit": CATEGORY_PALETTE[5],
+                 "improvement": CATEGORY_PALETTE[6]}
 
 
 @dataclass
@@ -52,6 +54,8 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
     """
     # '~unassigned' = no task at all (deleted task); '~none' = task without a category.
     column = {
+        "nature": "CASE WHEN t.id IS NULL THEN '~unassigned' "
+                  "WHEN t.nature IS NULL THEN '~none' ELSE t.nature END",
         "category": "CASE WHEN t.id IS NULL THEN '~unassigned' "
                     "WHEN c.id IS NULL THEN '~none' ELSE c.name END",
         "project": "CASE WHEN t.id IS NULL THEN '~unassigned' "
@@ -75,6 +79,9 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
         elif group in ("category", "project"):
             empty = "No category" if group == "category" else "No project"
             label, color = (empty, None) if key == "~none" else (key, row["color"])
+        elif group == "nature":
+            label = "Not set" if key == "~none" else NATURES.get(key, key)
+            color = NATURE_COLORS.get(key)
         elif group == "type":
             known = types.get(key)
             label, color = (known["name"], known["color"]) if known else (key, None)
@@ -84,6 +91,9 @@ def effort_by(db: Database, start: date, end: date, group: str) -> list[EffortRo
 
     if group in ("category", "project"):
         result.sort(key=lambda r: (-r.minutes, r.label))
+    elif group == "nature":
+        order = list(NATURES.values()) + ["Not set", UNASSIGNED]
+        result.sort(key=lambda r: order.index(r.label) if r.label in order else len(order))
     elif group == "type":
         order = [t["name"] for t in types.values()]
         result.sort(key=lambda r: order.index(r.label) if r.label in order else len(order))
@@ -149,6 +159,24 @@ def estimate_accuracy(db: Database, start: date, end: date) -> list[dict]:
             for t in tasks]
 
 
+def recurring_summary(db: Database, start: date, end: date) -> list[dict]:
+    """Per series: occurrences in the period that were done, missed or are still open."""
+    rows = db.conn.execute(
+        "SELECT r.id, r.title, r.nature, r.active, "
+        "  SUM(t.status = 'done') AS done, SUM(t.status = 'missed') AS missed, "
+        "  SUM(t.status NOT IN ('done', 'missed')) AS open "
+        "FROM recurrences r JOIN tasks t ON t.recurrence_id = r.id "
+        "WHERE t.occurrence_date >= ? AND t.occurrence_date <= ? "
+        "GROUP BY r.id ORDER BY r.title COLLATE NOCASE",
+        (start.isoformat(), end.isoformat())).fetchall()
+    result = []
+    for row in map(dict, rows):
+        finished = row["done"] + row["missed"]
+        row["rate"] = row["done"] / finished if finished else None
+        result.append(row)
+    return result
+
+
 # ---------- deadline board ----------
 
 BOARD_COLUMNS = ["Overdue", "Today", "This week", "Later", "No date"]
@@ -187,14 +215,21 @@ class WorkloadDay:
 
 
 def workload(ranked: list[ScoredTask], today: date, daily_goal: int, done_today: int,
-             working_days: set[int], days: int = 7) -> list[WorkloadDay]:
-    """Pomodoros needed vs available for each of the next `days` days."""
+             working_days: set[int], days: int = 7,
+             reserved: list[dict] | None = None) -> list[WorkloadDay]:
+    """Pomodoros needed vs available for each of the next `days` days.
+
+    `reserved` are upcoming recurring occurrences (dicts with 'due_date' and
+    'estimate_pomodoros'); their time counts on their day.
+    """
     result, cumulative = [], 0
     for offset in range(days):
         day = today + timedelta(days=offset)
         due_here = [s for s in ranked if s.due and
                     (s.due == day or (offset == 0 and s.due < today))]
         needed = sum(s.remaining or 0 for s in due_here)
+        needed += sum(r.get("estimate_pomodoros") or 0 for r in reserved or []
+                      if r["due_date"] == day.isoformat())
         cumulative += needed
         if offset == 0:
             available = max(daily_goal - done_today, 0)

@@ -22,8 +22,9 @@ class DeadlinesTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Set by the app: returns (ranked tasks, daily goal, pomodoros done today, working days).
-        self.plan_provider = lambda: ([], 8, 0, {0, 1, 2, 3, 4})
+        # Set by the app: returns (ranked tasks, daily goal, pomodoros done today,
+        # working days, upcoming recurring occurrences).
+        self.plan_provider = lambda: ([], 8, 0, {0, 1, 2, 3, 4}, [])
 
         self.board = QHBoxLayout()
         self.board.setSpacing(10)
@@ -61,7 +62,8 @@ class DeadlinesTab(QWidget):
         workload_layout.addWidget(QLabel("Workload - next 7 days", objectName="cardTitle"))
         workload_layout.addWidget(QLabel(
             "Pomodoros still needed for tasks due each day vs. what your daily goal allows. "
-            "Overdue work counts on today. Tasks without an estimate aren't counted.",
+            "Overdue work counts on today; upcoming recurring tasks count on their day. "
+            "Tasks without an estimate aren't counted.",
             objectName="cardNote", wordWrap=True))
         workload_layout.addWidget(self.workload_table)
 
@@ -80,7 +82,7 @@ class DeadlinesTab(QWidget):
         outer.addWidget(scroll)
 
     def refresh(self):
-        ranked, goal, done_today, working_days = self.plan_provider()
+        ranked, goal, done_today, working_days, reserved = self.plan_provider()
         today = date.today()
 
         board = reports.deadline_board(ranked, today)
@@ -99,7 +101,8 @@ class DeadlinesTab(QWidget):
             if not tasks:
                 cards.addWidget(QLabel("Nothing here", objectName="cardNote"))
 
-        days = reports.workload(ranked, today, goal, done_today, working_days)
+        days = reports.workload(ranked, today, goal, done_today, working_days,
+                                reserved=reserved)
         self.workload_table.setRowCount(len(days))
         for row, day in enumerate(days):
             label = "Today" if row == 0 else day.day.strftime("%a %d %b")

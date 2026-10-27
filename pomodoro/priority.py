@@ -145,15 +145,19 @@ def find_at_risk(tasks: list[dict], today: date, daily_goal: int, done_today: in
 
 def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8,
                done_today: int = 0, working_days: set[int] | None = None,
-               weights: ScoreWeights = DEFAULT_WEIGHTS) -> list[ScoredTask]:
+               weights: ScoreWeights = DEFAULT_WEIGHTS,
+               reserved: list[dict] | None = None) -> list[ScoredTask]:
     """Score and sort tasks, best next task first. Done and On Hold tasks are left out.
 
     `tasks` are dicts as returned by Database.list_tasks (with a 'pomodoros' total).
     """
     today = today or date.today()
     working_days = {0, 1, 2, 3, 4} if working_days is None else working_days
-    open_tasks = [t for t in tasks if t["status"] not in ("done", "on_hold")]
-    risky = find_at_risk(open_tasks, today, daily_goal, done_today, working_days)
+    open_tasks = [t for t in tasks if t["status"] not in ("done", "missed", "on_hold")]
+    # `reserved`: upcoming recurring occurrences. They aren't tasks yet, but their
+    # time is already promised, so they count when checking whether deadlines fit.
+    risky = find_at_risk(open_tasks + (reserved or []), today, daily_goal, done_today,
+                         working_days)
 
     scored = []
     for task in open_tasks:

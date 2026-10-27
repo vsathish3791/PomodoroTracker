@@ -15,7 +15,14 @@ STATUSES = {
     "in_progress": "In Progress",
     "on_hold": "On Hold",
     "done": "Done",
+    "missed": "Missed",      # a recurring occurrence that wasn't done before the next one
 }
+CLOSED_STATUSES = ("done", "missed")
+
+# The kind of work a task is (Falconi: routine = keep things running, improvement =
+# change things; Clear: habits = small repeated actions that shape who you become).
+NATURES = {"routine": "Routine", "habit": "Habit", "improvement": "Improvement"}
+NATURE_ICONS = {"routine": "🔁", "habit": "🌱", "improvement": "🚀"}
 
 # When in the day a task suits you best (from your Notion Tasks Tracker).
 ENERGY_SLOTS = {

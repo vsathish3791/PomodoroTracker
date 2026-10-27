@@ -16,8 +16,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
-                             DEFAULT_TYPES, ENERGY_SLOTS, EXTRA_CATEGORY_COLOR,
+                             DEFAULT_TYPES, ENERGY_SLOTS, EXTRA_CATEGORY_COLOR, NATURES,
                              OLD_DEFAULT_COLORS, PRIORITIES, STATUSES)
+from pomodoro.recurrence import Schedule, schedule_from_row
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -49,11 +50,35 @@ CREATE TABLE IF NOT EXISTS tasks (
                        CHECK (priority BETWEEN 1 AND 4),   -- 1 = Critical ... 4 = Low
     due_date           TEXT,                                -- ISO date/datetime, optional
     estimate_pomodoros INTEGER,
-    status             TEXT NOT NULL DEFAULT 'todo'
-                       CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),
+    status             TEXT NOT NULL DEFAULT 'todo',        -- see models.STATUSES
     notes              TEXT,
     created_at         TEXT NOT NULL,
     completed_at       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS recurrences (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- the template each occurrence is created from
+    title              TEXT NOT NULL,
+    project_id         INTEGER REFERENCES projects(id),
+    category_id        INTEGER REFERENCES categories(id),
+    type               TEXT,
+    priority           INTEGER NOT NULL DEFAULT 3,
+    estimate_pomodoros INTEGER,
+    energy_slot        TEXT,
+    nature             TEXT NOT NULL DEFAULT 'routine',
+    notes              TEXT,
+    notion_url         TEXT,
+    checklist          TEXT,                 -- one step per line
+    -- the schedule (see recurrence.py)
+    frequency          TEXT NOT NULL,        -- daily | weekly | monthly
+    workdays_only      INTEGER NOT NULL DEFAULT 1,
+    weekdays           TEXT,                 -- "0,3" = Mon, Thu
+    month_day          INTEGER,
+    start_date         TEXT NOT NULL,
+    end_date           TEXT NOT NULL,
+    active             INTEGER NOT NULL DEFAULT 1,
+    created_at         TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -104,6 +129,13 @@ DEFAULT_SETTINGS = {
 }
 
 
+def clean_checklist(text: str | None) -> str | None:
+    """One step per line; blank lines and stray spaces removed. Empty -> None."""
+    steps = [" ".join(line.split()) for line in (text or "").splitlines()]
+    steps = [step.lstrip("-*• ").strip() for step in steps]
+    return "\n".join(step for step in steps if step) or None
+
+
 def default_db_path() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home())
     return Path(base) / "PomodoroTracker" / "pomodoro.db"
@@ -136,7 +168,15 @@ class Database:
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN energy_slot TEXT")
             if "notion_url" not in columns:   # v1.2.1: link to the task's Notion page
                 self.conn.execute("ALTER TABLE tasks ADD COLUMN notion_url TEXT")
-        self._allow_any_task_type()          # editable types were added in v1.2
+            for column, kind in [("recurrence_id", "INTEGER REFERENCES recurrences(id)"),
+                                 ("occurrence_date", "TEXT"), ("nature", "TEXT"),
+                                 ("checklist", "TEXT"), ("checklist_done", "TEXT")]:
+                if column not in columns:     # v1.3: recurring tasks, kind of work, checklists
+                    self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {kind}")
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_occurrence "
+                "ON tasks(recurrence_id, occurrence_date) WHERE recurrence_id IS NOT NULL")
+        self._relax_task_rules()             # v1.2 types, v1.3 'missed' status
         category_columns = {row["name"] for row in
                             self.conn.execute("PRAGMA table_info(categories)")}
         with self.conn:
@@ -151,15 +191,19 @@ class Database:
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 
-    def _allow_any_task_type(self):
-        """v1.0/1.1 only allowed 'coding'/'non-coding' (a CHECK rule on tasks.type).
-        SQLite can't drop a CHECK rule, so the tasks table is copied without it."""
+    def _relax_task_rules(self):
+        """Older versions had fixed lists for tasks.type (v1.0/1.1) and tasks.status
+        (before v1.3) as CHECK rules. Types are now editable and there is a 'missed'
+        status, and the app checks values itself. SQLite can't drop a CHECK rule, so
+        the tasks table is copied without them (all data and ids are kept)."""
         sql = self.conn.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").fetchone()[0]
-        if "CHECK (type IN" not in sql:
+        if "CHECK (type IN" not in sql and "CHECK (status IN" not in sql:
             return
-        new_sql = re.sub(r"\s*CHECK \(type IN \([^)]*\)\)", "", sql)
-        new_sql = new_sql.replace("CREATE TABLE tasks", "CREATE TABLE tasks_upgrade", 1)
+        new_sql = re.sub(r"\s*CHECK \((?:type|status) IN \([^)]*\)\)", "", sql)
+        # The name may be stored as tasks or "tasks" (after an earlier upgrade).
+        new_sql = re.sub(r'CREATE TABLE\s+"?tasks"?', "CREATE TABLE tasks_upgrade", new_sql,
+                         count=1)
         columns = ", ".join(row["name"] for row in self.conn.execute("PRAGMA table_info(tasks)"))
         self.conn.execute("PRAGMA foreign_keys = OFF")   # sessions point at tasks
         try:
@@ -450,7 +494,8 @@ class Database:
 
     # Columns that create_task/update_task are allowed to set.
     TASK_FIELDS = ("title", "category_id", "project_id", "type", "priority", "due_date",
-                   "estimate_pomodoros", "status", "notes", "energy_slot", "notion_url")
+                   "estimate_pomodoros", "status", "notes", "energy_slot", "notion_url",
+                   "nature", "checklist")
 
     def _clean_task_fields(self, fields: dict) -> dict:
         unknown = set(fields) - set(self.TASK_FIELDS)
@@ -467,6 +512,10 @@ class Database:
             raise ValueError(f"Status must be one of {list(STATUSES)}")
         if "type" in fields and fields["type"] not in self.type_names():
             raise ValueError(f"Type must be one of {list(self.type_names())}")
+        if fields.get("nature") not in (None, *NATURES):
+            raise ValueError(f"Kind of work must be one of {list(NATURES)}")
+        if "checklist" in fields:
+            fields["checklist"] = clean_checklist(fields["checklist"])
         if fields.get("energy_slot") not in (None, *ENERGY_SLOTS):
             raise ValueError(f"Energy slot must be one of {list(ENERGY_SLOTS)}")
         if "notion_url" in fields:
@@ -542,7 +591,7 @@ class Database:
         """
         where, params = [], []
         if show == "open":
-            where.append("t.status != 'done'")
+            where.append("t.status NOT IN ('done', 'missed')")
         elif show == "done":
             where.append("t.status = 'done'")
         if category_id is not None:
@@ -565,13 +614,179 @@ class Database:
                     "t.due_date IS NULL, t.due_date, t.created_at")
         return [dict(row) for row in self.conn.execute(sql, params).fetchall()]
 
+    def set_checklist_done(self, task_id: int, done_steps: list[int]):
+        """Remember which checklist steps (by position) are ticked for this task."""
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET checklist_done = ? WHERE id = ?",
+                              (json.dumps(sorted(set(done_steps))), task_id))
+
+    # ---------- recurring tasks ----------
+
+    RECURRENCE_FIELDS = ("title", "project_id", "category_id", "type", "priority",
+                         "estimate_pomodoros", "energy_slot", "nature", "notes", "notion_url",
+                         "checklist", "frequency", "workdays_only", "weekdays", "month_day",
+                         "start_date", "end_date")
+    # Template fields copied onto each occurrence
+    _COPIED = ("title", "project_id", "category_id", "type", "priority", "estimate_pomodoros",
+               "energy_slot", "nature", "notes", "notion_url", "checklist")
+
+    def _clean_recurrence(self, fields: dict, current: dict | None = None) -> dict:
+        unknown = set(fields) - set(self.RECURRENCE_FIELDS)
+        if unknown:
+            raise ValueError(f"Unknown fields: {sorted(unknown)}")
+        fields = dict(fields)
+        if isinstance(fields.get("weekdays"), (list, tuple, set)):
+            fields["weekdays"] = ",".join(str(d) for d in sorted(fields["weekdays"]))
+        task_like = {k: v for k, v in fields.items() if k in self.TASK_FIELDS}
+        fields.update(self._clean_task_fields(task_like))
+        if fields.get("type") is None and current is None:
+            fields["type"] = self.default_type()
+        merged = {**(current or {}), **fields}
+        if not merged.get("start_date") or not merged.get("end_date"):
+            raise ValueError("A recurring task needs a start date and an end date")
+        schedule_from_row(merged)        # raises ValueError if the schedule is invalid
+        return fields
+
+    def create_recurrence(self, title: str, **fields) -> int:
+        fields = self._clean_recurrence({"title": title, **fields})
+        fields.setdefault("nature", "routine")
+        fields["created_at"] = datetime.now().isoformat(timespec="seconds")
+        columns = ", ".join(fields)
+        with self.conn:
+            return self.conn.execute(
+                f"INSERT INTO recurrences ({columns}) VALUES ({', '.join('?' * len(fields))})",
+                list(fields.values())).lastrowid
+
+    def get_recurrence(self, recurrence_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM recurrences WHERE id = ?",
+                                (recurrence_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_recurrence(self, recurrence_id: int, **fields):
+        """Change the series. Future occurrences use the new template and schedule."""
+        current = self.get_recurrence(recurrence_id)
+        fields = self._clean_recurrence(fields, current)
+        if not fields:
+            return
+        with self.conn:
+            self.conn.execute(
+                f"UPDATE recurrences SET {', '.join(f'{c} = ?' for c in fields)} WHERE id = ?",
+                [*fields.values(), recurrence_id])
+
+    def stop_recurrence(self, recurrence_id: int):
+        """Stop repeating. The current occurrence (if any) and the history are kept."""
+        with self.conn:
+            self.conn.execute("UPDATE recurrences SET active = 0 WHERE id = ?", (recurrence_id,))
+
+    def resume_recurrence(self, recurrence_id: int):
+        with self.conn:
+            self.conn.execute("UPDATE recurrences SET active = 1 WHERE id = ?", (recurrence_id,))
+
+    def delete_recurrence(self, recurrence_id: int):
+        """Delete the series. Open occurrences without logged time are removed; finished,
+        missed and worked-on occurrences stay in your history as ordinary tasks."""
+        with self.conn:
+            self.conn.execute(
+                "DELETE FROM tasks WHERE recurrence_id = ? AND status NOT IN ('done', 'missed') "
+                "AND id NOT IN (SELECT task_id FROM sessions WHERE task_id IS NOT NULL)",
+                (recurrence_id,))
+            self.conn.execute("UPDATE tasks SET recurrence_id = NULL WHERE recurrence_id = ?",
+                              (recurrence_id,))
+            self.conn.execute("DELETE FROM recurrences WHERE id = ?", (recurrence_id,))
+
+    def schedule(self, recurrence_id: int) -> Schedule:
+        return schedule_from_row(self.get_recurrence(recurrence_id))
+
+    def generate_occurrences(self, today: date | None = None,
+                             working_days: set[int] | None = None) -> int:
+        """Create the occurrences that are due by today. Returns how many were created.
+
+        Only the latest due occurrence is open; one that is still open when a newer
+        one appears is marked Missed. Days skipped while the app was closed are
+        recorded as Missed too, so the history stays complete.
+        """
+        today = today or date.today()
+        working_days = self.get_working_days() if working_days is None else working_days
+        created = 0
+        for rec in [dict(r) for r in self.conn.execute(
+                "SELECT * FROM recurrences WHERE active = 1").fetchall()]:
+            schedule = schedule_from_row(rec)
+            last = self.conn.execute(
+                "SELECT MAX(occurrence_date) FROM tasks WHERE recurrence_id = ?",
+                (rec["id"],)).fetchone()[0]
+            first = date.fromisoformat(last) + timedelta(days=1) if last else schedule.start
+            due = schedule.dates(first, today, working_days)
+            if not due:
+                continue
+            now = datetime.now().isoformat(timespec="seconds")
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE tasks SET status = 'missed', completed_at = NULL "
+                    "WHERE recurrence_id = ? AND status NOT IN ('done', 'missed')", (rec["id"],))
+                for day in due:
+                    values = {k: rec[k] for k in self._COPIED}
+                    values.update(recurrence_id=rec["id"], occurrence_date=day.isoformat(),
+                                  due_date=day.isoformat(), created_at=now,
+                                  status="todo" if day == due[-1] else "missed")
+                    self.conn.execute(
+                        f"INSERT INTO tasks ({', '.join(values)}) "
+                        f"VALUES ({', '.join('?' * len(values))})", list(values.values()))
+                    created += 1
+        return created
+
+    def upcoming_occurrences(self, first: date, last: date, today: date | None = None,
+                             working_days: set[int] | None = None) -> list[dict]:
+        """Occurrences not created yet (after today) between first and last: a preview."""
+        today = today or date.today()
+        working_days = self.get_working_days() if working_days is None else working_days
+        rows = self.conn.execute(
+            "SELECT r.*, p.name AS project, p.color AS project_color, "
+            "       (SELECT MAX(occurrence_date) FROM tasks t WHERE t.recurrence_id = r.id) AS last "
+            "FROM recurrences r LEFT JOIN projects p ON p.id = r.project_id "
+            "WHERE r.active = 1").fetchall()
+        upcoming = []
+        for rec in map(dict, rows):
+            schedule = schedule_from_row(rec)
+            start = max(first, today + timedelta(days=1))
+            if rec["last"]:
+                start = max(start, date.fromisoformat(rec["last"]) + timedelta(days=1))
+            for day in schedule.dates(start, last, working_days):
+                upcoming.append({**rec, "date": day})
+        upcoming.sort(key=lambda r: (r["date"], r["title"].lower()))
+        return upcoming
+
+    def list_recurrences(self, include_stopped: bool = True, today: date | None = None,
+                         working_days: set[int] | None = None) -> list[dict]:
+        """Series with their progress: done, missed, open, and the next date."""
+        today = today or date.today()
+        working_days = self.get_working_days() if working_days is None else working_days
+        sql = ("SELECT r.*, p.name AS project, p.color AS project_color, "
+               "  SUM(t.status = 'done') AS done, SUM(t.status = 'missed') AS missed, "
+               "  SUM(t.status NOT IN ('done', 'missed')) AS open, COUNT(t.id) AS so_far "
+               "FROM recurrences r LEFT JOIN projects p ON p.id = r.project_id "
+               "LEFT JOIN tasks t ON t.recurrence_id = r.id ")
+        if not include_stopped:
+            sql += "WHERE r.active = 1 "
+        sql += "GROUP BY r.id ORDER BY r.active DESC, r.title COLLATE NOCASE"
+        result = []
+        for rec in map(dict, self.conn.execute(sql).fetchall()):
+            schedule = schedule_from_row(rec)
+            rec.update(done=rec["done"] or 0, missed=rec["missed"] or 0, open=rec["open"] or 0)
+            rec["total"] = schedule.count(working_days)
+            rec["describe"] = schedule.describe()
+            rec["next_date"] = (schedule.next_date(today, working_days)
+                                if rec["active"] else None)
+            result.append(rec)
+        return result
+
     def find_open_task(self, title: str) -> int | None:
         """Id of the open task with this title (case-insensitive, extra spaces ignored)."""
         title = " ".join(title.split())
         if not title:
             return None
         row = self.conn.execute(
-            "SELECT id FROM tasks WHERE title = ? COLLATE NOCASE AND status != 'done' "
+            "SELECT id FROM tasks WHERE title = ? COLLATE NOCASE "
+            "AND status NOT IN ('done', 'missed') "
             "ORDER BY id DESC LIMIT 1",
             (title,),
         ).fetchone()
@@ -598,7 +813,8 @@ class Database:
         rows = self.conn.execute(
             "SELECT t.title, MAX(COALESCE(s.start_time, t.created_at)) AS last_used "
             "FROM tasks t LEFT JOIN sessions s ON s.task_id = t.id "
-            "WHERE t.status != 'done' GROUP BY t.id ORDER BY last_used DESC LIMIT ?",
+            "WHERE t.status NOT IN ('done', 'missed') GROUP BY t.id "
+            "ORDER BY last_used DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [row["title"] for row in rows]

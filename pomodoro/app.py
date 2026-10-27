@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -87,7 +87,7 @@ class PomodoroApp:
         self.deadlines_tab = DeadlinesTab()
         self.deadlines_tab.plan_provider = lambda: (
             self.rank(), self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
-            self.db.get_working_days())
+            self.db.get_working_days(), self.reserved_time())
         self.deadlines_tab.start_requested.connect(self.start_task)
         self.window.tabs.addTab(self.deadlines_tab, "Deadlines")
 
@@ -128,6 +128,9 @@ class PomodoroApp:
         self.ticker.timeout.connect(self._tick)
         self.ticker.start()
 
+        # Create today's recurring occurrences (and catch up after days away).
+        self._today = date.today()
+        self.db.generate_occurrences()
         self.window.show_hint("Enter a task, then press Start.")
         self._refresh_stats()
         self._prefill_top_task()
@@ -218,7 +221,16 @@ class PomodoroApp:
         """Open tasks, best next task first (see pomodoro/priority.py)."""
         return rank_tasks(self.db.list_tasks("open"), date.today(),
                           self.db.get_int("daily_goal"), self.db.day_stats()["pomodoros"],
-                          self.db.get_working_days(), self.weights())
+                          self.db.get_working_days(), self.weights(), self.reserved_time())
+
+    def reserved_time(self, days: int = 14) -> list[dict]:
+        """Upcoming recurring occurrences (next two weeks), as task-like rows."""
+        today = date.today()
+        upcoming = self.db.upcoming_occurrences(today + timedelta(days=1),
+                                                today + timedelta(days=days), today)
+        return [{"id": -(n + 1), "title": u["title"], "priority": u["priority"],
+                 "due_date": u["date"].isoformat(), "estimate_pomodoros": u["estimate_pomodoros"],
+                 "pomodoros": 0, "status": "todo"} for n, u in enumerate(upcoming)]
 
     def weights(self) -> ScoreWeights:
         return ScoreWeights.from_dict(self.db.get_json("score_weights"))
@@ -383,6 +395,12 @@ class PomodoroApp:
     def _tick(self):
         self.timer.tick()
         self._refresh_display()
+        if date.today() != self._today:          # past midnight: a new day's routine
+            self._today = date.today()
+            self.db.generate_occurrences()
+            self._on_tasks_changed()
+            self.tasks_tab.refresh()
+            self.todo_tab.refresh()
 
     def _on_phase_changed(self, phase: Phase, running: bool):
         hints = {

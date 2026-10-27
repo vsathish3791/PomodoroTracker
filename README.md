@@ -49,6 +49,28 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Recurring tasks, kind of work and checklists (v1.3)
+
+- **Repeat** in the task form: *Daily* (every day or working days only), *Weekly* (pick the
+  weekdays) or *Monthly* (day of month; 29-31 use the last day of short months). A start
+  date and a **Repeat until** date are required; the form shows e.g. *"Every working day
+  until 27 Dec - 44 times"*. Or open **To-Do -> Recurring**, type a name and press Enter.
+- Each occurrence is a normal task, created **on its day** (at start-up, and at midnight if
+  the app is running). **Tomorrow** and **This Week** show the rest as a grey *Coming up*
+  preview.
+- An occurrence still open when the next one appears is marked **Missed**; days skipped
+  while the PC was off are recorded as missed too. Right-click -> *Recurring -> Skip this
+  one* marks one missed on purpose.
+- Editing an occurrence asks **Just this one** or **This and future ones**. Right-click a
+  series in **Recurring** to edit, *Stop repeating* (history kept, can resume) or delete.
+- **Recurring** list: each series with done / missed / of total, % done and the next date.
+- **Kind of work** on every task: *Routine*, *Habit* or *Improvement* (recurring tasks
+  default to Routine). Reports show **Kind of work** and a **Recurring tasks** table.
+- **Checklist** (one step per line) on any task or series: ☑ 1/3 on the row, right-click
+  -> *Checklist...* to tick steps; when all are ticked the app offers to mark it done.
+- Upcoming occurrences **reserve time**: the at-risk check and the 7-day workload count
+  them, so a big deadline next to a daily routine is flagged early.
+
 ### Energy slots and Notion links (v1.2.1)
 
 - **Energy slot** on each task: *High energy (Deep work) · Post-learning clarity (Create) ·
@@ -206,6 +228,7 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/ui/reports_tab.py` | The Reports tab |
 | `pomodoro/ui/deadlines_tab.py` | The Deadlines tab |
 | `pomodoro/ui/charts.py` | Simple bar and column charts |
+| `pomodoro/recurrence.py` | Repeat rules: daily / weekly / monthly dates - plain Python |
 | `pomodoro/lists.py` | What each To-Do list contains, its totals, sorting, grouping |
 | `pomodoro/ui/todo_tab.py` | The To-Do tab (sidebar, totals, quick add, task rows) |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |

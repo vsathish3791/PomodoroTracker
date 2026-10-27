@@ -22,6 +22,7 @@ SMART_LISTS = [
     ("tomorrow", "Tomorrow"),
     ("week", "This Week"),
     ("planned", "Planned"),
+    ("recurring", "Recurring"),
     ("completed", "Completed"),
     ("all", "Tasks"),
 ]
@@ -49,6 +50,8 @@ def matches(view: str, task: dict, today: date) -> bool:
     due = _due(task)
     if view in ("all", "completed"):
         return True
+    if view == "recurring":
+        return task.get("recurrence_id") is not None
     if due is None:
         return False
     if view == "today":
@@ -84,6 +87,17 @@ def list_content(db: Database, view: str, today: date | None = None) -> ListCont
     open_tasks = [t for t in db.list_tasks("open") if matches(view, t, today)]
     done = [t for t in db.list_tasks("done") if completed_on(t, today) and matches(view, t, today)]
     return ListContent(open_tasks, done)
+
+
+def coming_up(db: Database, view: str, today: date | None = None) -> list[dict]:
+    """Preview of recurring occurrences not created yet, for Tomorrow and This Week."""
+    today = today or date.today()
+    if view == "tomorrow":
+        day = today + timedelta(days=1)
+        return db.upcoming_occurrences(day, day, today)
+    if view == "week":
+        return db.upcoming_occurrences(today + timedelta(days=1), end_of_week(today), today)
+    return []
 
 
 def remaining_estimate(task: dict) -> int:
@@ -125,8 +139,15 @@ def sidebar_counts(db: Database, focus_minutes: int, today: date | None = None
             done_today = sum(1 for t in db.list_tasks("done") if completed_on(t, today))
             counts[key] = (done_today, 0)
             continue
+        if key == "recurring":
+            counts[key] = (len(db.list_recurrences(include_stopped=False, today=today)), 0)
+            continue
         tasks = [t for t in open_tasks if matches(key, t, today)]
-        counts[key] = (len(tasks), sum(remaining_estimate(t) for t in tasks) * focus_minutes)
+        # Recurring occurrences still to come this week count too (they will appear).
+        upcoming = coming_up(db, key, today)
+        counts[key] = (len(tasks) + len(upcoming),
+                       (sum(remaining_estimate(t) for t in tasks)
+                        + sum(u["estimate_pomodoros"] or 0 for u in upcoming)) * focus_minutes)
     for project in db.list_projects():
         tasks = [t for t in open_tasks if t["project_id"] == project["id"]]
         counts[f"project:{project['id']}"] = (

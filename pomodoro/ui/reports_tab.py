@@ -112,6 +112,16 @@ class ReportsTab(QWidget):
         # ----- charts -----
         self.category_chart = HBarChart()
         self.project_chart = HBarChart()
+        self.nature_chart = HBarChart()
+        self.recurring_table = QTableWidget(0, 5)
+        self.recurring_table.setHorizontalHeaderLabels(["Recurring task", "Done", "Missed",
+                                                        "Open", "Done %"])
+        self.recurring_table.verticalHeader().setVisible(False)
+        self.recurring_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.recurring_table.setShowGrid(False)
+        rec_header = self.recurring_table.horizontalHeader()
+        rec_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        rec_header.setSectionResizeMode(0, QHeaderView.Stretch)
         self.type_chart = HBarChart()
         self.priority_chart = HBarChart()
         self.trend_chart = ColumnChart()
@@ -134,8 +144,13 @@ class ReportsTab(QWidget):
         self.trend_card = Card("Daily trend", self.trend_chart)
         grid.addWidget(self.trend_card, 1, 1)
         grid.addWidget(Card("Effort by project", self.project_chart), 2, 0)
+        grid.addWidget(Card("Kind of work", self.nature_chart,
+                            "Routine keeps things running; improvement moves them forward."),
+                       2, 1)
+        grid.addWidget(Card("Recurring tasks", self.recurring_table,
+                            "Occurrences in this period."), 3, 0)
         grid.addWidget(Card("Estimate vs actual", self.estimate_table,
-                            "Finished tasks that had an estimate."), 2, 1)
+                            "Finished tasks that had an estimate."), 3, 1)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
@@ -221,6 +236,19 @@ class ReportsTab(QWidget):
             reports.effort_by(self.db, start, end, "category"), lambda r: r.color or grey))
         self.project_chart.set_bars(self._bars(
             reports.effort_by(self.db, start, end, "project"), lambda r: r.color or grey))
+        self.nature_chart.set_bars(self._bars(
+            reports.effort_by(self.db, start, end, "nature"), lambda r: r.color or grey))
+        recurring = reports.recurring_summary(self.db, start, end)
+        self.recurring_table.setRowCount(len(recurring))
+        for i, row in enumerate(recurring):
+            rate = f"{row['rate']:.0%}" if row["rate"] is not None else "–"
+            for column, text in enumerate([row["title"], str(row["done"]), str(row["missed"]),
+                                           str(row["open"]), rate]):
+                item = QTableWidgetItem(text)
+                if column:
+                    item.setTextAlignment(Qt.AlignCenter)
+                self.recurring_table.setItem(i, column, item)
+        self.recurring_table.setFixedHeight(36 + 30 * max(len(recurring), 1))
         self.type_chart.set_bars(self._bars(
             reports.effort_by(self.db, start, end, "type"),
             lambda r: r.color or grey))

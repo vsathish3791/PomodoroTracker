@@ -5,18 +5,22 @@ projects, each with its task count and estimated time. Right: the chosen list wi
 its totals, a quick-add box, and the tasks grouped by project.
 """
 
+import json
 from datetime import date, timedelta
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QPainter, QPen
-from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QAbstractButton, QCheckBox, QDialog, QDialogButtonBox,
+                               QFrame, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout,
                                QWidget)
 
 from pomodoro import lists
 from pomodoro.database import Database
-from pomodoro.models import CATEGORY_PALETTE, ENERGY_SHORT, PRIORITIES, due_label, is_overdue
+from pomodoro.models import (CATEGORY_PALETTE, CLOSED_STATUSES, ENERGY_SHORT, NATURE_ICONS,
+                             NATURES, PRIORITIES, due_label, is_overdue)
+from pomodoro.recurrence import FREQUENCIES
 from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.task_dialog import TaskDialog
 
@@ -27,7 +31,19 @@ MUTED = "#8B8D98"
 SMART_ICONS = {   # symbol and tint for each smart list
     "today": ("☀", "#30A46C"), "tomorrow": ("◒", "#F76B15"), "week": ("▦", "#6250d6"),
     "planned": ("▤", "#0090FF"), "completed": ("✓", "#8B8D98"), "all": ("☰", "#0090FF"),
+    "recurring": ("↻", "#12A594"),
 }
+
+
+def checklist_steps(task: dict) -> list[str]:
+    return [s for s in (task.get("checklist") or "").splitlines() if s.strip()]
+
+
+def checklist_done(task: dict) -> list[int]:
+    try:
+        return json.loads(task.get("checklist_done") or "[]")
+    except ValueError:
+        return []
 
 
 # ---------- small building blocks ----------
@@ -97,7 +113,8 @@ class TaskRow(QFrame):
     def __init__(self, task: dict, show_project: bool, today: date):
         super().__init__(objectName="todoRow")
         self.task_id = task["id"]
-        done = task["status"] == "done"
+        done = task["status"] in CLOSED_STATUSES
+        missed = task["status"] == "missed"
 
         check = CheckCircle(done)
         check.clicked.connect(lambda: self.toggled.emit(self.task_id))
@@ -130,6 +147,15 @@ class TaskRow(QFrame):
                               f'<span style="color:{MUTED}">{task["project"]}</span>')
         if task.get("category"):
             meta_parts.append(f'<span style="color:{MUTED}">{task["category"]}</span>')
+        if task.get("recurrence_id"):
+            meta_parts.append(f'<span style="color:#12A594">↻ {task.get("repeat_text") or "Repeats"}</span>')
+        elif task.get("nature") in ("habit", "routine"):
+            meta_parts.append(f'<span style="color:{MUTED}">{NATURE_ICONS[task["nature"]]} '
+                              f'{NATURES[task["nature"]]}</span>')
+        steps = checklist_steps(task)
+        if steps:
+            ticked = len([i for i in checklist_done(task) if i < len(steps)])
+            meta_parts.append(f'<span style="color:{MUTED}">☑ {ticked}/{len(steps)}</span>')
         if task.get("energy_slot") and not done:
             meta_parts.append(f'<span style="color:{MUTED}">{ENERGY_SHORT[task["energy_slot"]]}</span>')
         if task.get("notion_url"):
@@ -147,7 +173,9 @@ class TaskRow(QFrame):
 
         due_text = due_label(task["due_date"], today) if task["due_date"] else ""
         due = QLabel(due_text, objectName="todoDue")
-        if done and task.get("completed_at"):
+        if missed:
+            due.setText("Missed " + date.fromisoformat(task["due_date"][:10]).strftime("%d %b"))
+        elif done and task.get("completed_at"):
             due.setText("Done " + date.fromisoformat(task["completed_at"][:10]).strftime("%d %b"))
         elif is_overdue(task["due_date"], today) or due_text == "Today":
             due.setStyleSheet(f"color: {RED};")
@@ -483,8 +511,9 @@ class TodoTab(QWidget):
         if search:
             title = f'Search: "{self.search_input.text().strip()}"'
             everything = self.db.list_tasks("all", search=search)
-            content = lists.ListContent([t for t in everything if t["status"] != "done"],
-                                        [t for t in everything if t["status"] == "done"])
+            content = lists.ListContent(
+                [t for t in everything if t["status"] not in CLOSED_STATUSES],
+                [t for t in everything if t["status"] in CLOSED_STATUSES])
         else:
             title = self._view_name()
             content = lists.list_content(self.db, self.current, today)
@@ -510,6 +539,8 @@ class TodoTab(QWidget):
         self.add_input.setEnabled(can_add)
         self.estimate_picker.setEnabled(can_add)
         self.add_input.setPlaceholderText(
+            "Add a recurring task: type its name and press Enter to set the schedule"
+            if self.current == "recurring" and can_add else
             f'Add a task to "{self._view_name()}", press Enter to save' if can_add
             else "Pick a list to add tasks")
 
@@ -520,6 +551,16 @@ class TodoTab(QWidget):
                 item.widget().hide()          # hide now; delete once any click on it has finished
                 item.widget().deleteLater()
 
+        if self.current == "recurring" and not search:
+            self._show_recurring()
+            return
+
+        self._repeat_text = {r["id"]: FREQUENCIES[r["frequency"]] if r["frequency"] != "daily"
+                             else ("Every working day" if r["workdays_only"] else "Daily")
+                             for r in self.db.list_recurrences()}
+        for task in content.open_tasks + content.done_tasks:
+            if task.get("recurrence_id"):
+                task["repeat_text"] = self._repeat_text.get(task["recurrence_id"])
         open_tasks = lists.sort_tasks(content.open_tasks, self.sort, self.score_order())
         in_project = self.current.startswith("project:") and not search
         focus = self.db.get_int("focus_minutes")
@@ -538,6 +579,13 @@ class TodoTab(QWidget):
                            objectName="todoEmpty", alignment=Qt.AlignCenter)
             self.list_layout.addWidget(empty)
 
+        upcoming = [] if search else lists.coming_up(self.db, self.current, today)
+        if upcoming:
+            self.list_layout.addWidget(self._group_header("Coming up", "#B9BBC6", len(upcoming), 0,
+                                                          show_time=False))
+            for occurrence in upcoming:
+                self.list_layout.addWidget(self._coming_up_row(occurrence, today))
+
         if content.done_tasks:
             label = "Completed" if self.current == "completed" else "Completed today"
             toggle = QPushButton(f"{'▾' if self.show_done else '▸'}  {label} · "
@@ -549,14 +597,128 @@ class TodoTab(QWidget):
                 for task in content.done_tasks:
                     self.list_layout.addWidget(self._row(task, show_project=True))
 
-    def _group_header(self, name: str, color: str | None, count: int, minutes: int) -> QWidget:
+    def _group_header(self, name: str, color: str | None, count: int, minutes: int,
+                      show_time: bool = True) -> QWidget:
         dot = f'<span style="color:{color}">●</span>&nbsp;' if color else ""
-        label = QLabel(f"{dot}<b>{name}</b> &nbsp;·&nbsp; {lists.format_minutes(minutes)}"
+        time = f" &nbsp;·&nbsp; {lists.format_minutes(minutes)}" if show_time else ""
+        label = QLabel(f"{dot}<b>{name}</b>{time}"
                        f'&nbsp;&nbsp;<span style="color:{MUTED}">{count}</span>',
                        objectName="todoGroup")
         label.setTextFormat(Qt.RichText)
         label.setContentsMargins(4, 8, 0, 2)
         return label
+
+    def _coming_up_row(self, occurrence: dict, today: date) -> QWidget:
+        """A light preview row for an occurrence that will be created on its day."""
+        day = occurrence["date"]
+        when = "Tomorrow" if day == today + timedelta(days=1) else day.strftime("%a %d %b")
+        est = f" · {occurrence['estimate_pomodoros']} 🍅" if occurrence["estimate_pomodoros"] else ""
+        project = f" · {occurrence['project']}" if occurrence.get("project") else ""
+        row = QLabel(f'<span style="color:{MUTED}">↻ {when}</span> &nbsp; {occurrence["title"]}'
+                     f'<span style="color:{MUTED}">{project}{est}</span>', objectName="todoComing")
+        row.setTextFormat(Qt.RichText)
+        row.setToolTip("Created automatically on its day. Double-click to edit the series.")
+        row.mouseDoubleClickEvent = lambda _e, r=occurrence["id"]: self.edit_series(r)
+        return row
+
+    def _show_recurring(self):
+        """The Recurring list: one row per series with its progress."""
+        series = self.db.list_recurrences()
+        if not series:
+            self.list_layout.addWidget(QLabel(
+                "No recurring tasks yet. Type a name above and press Enter to set one up.",
+                objectName="todoEmpty", alignment=Qt.AlignCenter))
+            return
+        active = [s for s in series if s["active"]]
+        stopped = [s for s in series if not s["active"]]
+        for name, items in (("Active", active), ("Stopped", stopped)):
+            if not items:
+                continue
+            self.list_layout.addWidget(self._group_header(name, None, len(items), 0,
+                                                          show_time=False))
+            for rec in items:
+                self.list_layout.addWidget(self._series_row(rec))
+
+    def _series_row(self, rec: dict) -> QWidget:
+        row = QFrame(objectName="todoRow")
+        icon = QLabel(NATURE_ICONS.get(rec["nature"], "↻"), objectName="seriesIcon")
+        title = QLabel(rec["title"], objectName="todoTitle")
+        if not rec["active"]:
+            title.setStyleSheet(f"color: {MUTED};")
+        project = (f'<span style="color:{rec["project_color"]}">●</span> {rec["project"]} · '
+                   if rec.get("project") else "")
+        est = f' · {rec["estimate_pomodoros"]} 🍅 each' if rec["estimate_pomodoros"] else ""
+        meta = QLabel(f'<span style="color:{MUTED}">{project}{rec["describe"]}{est}</span>',
+                      objectName="todoMeta")
+        meta.setTextFormat(Qt.RichText)
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        text.addWidget(title)
+        text.addWidget(meta)
+
+        finished = rec["done"] + rec["missed"]
+        rate = f"{rec['done'] / finished:.0%} done" if finished else "no history yet"
+        if rec["active"] and rec["next_date"]:
+            nxt = "next " + ("tomorrow" if rec["next_date"] == date.today() + timedelta(days=1)
+                             else rec["next_date"].strftime("%a %d %b"))
+        else:
+            nxt = "stopped" if not rec["active"] else "finished"
+        stats = QLabel(f"✓ {rec['done']} &nbsp; ✗ {rec['missed']} &nbsp; of {rec['total']}"
+                       f"<br><span style='color:{MUTED}'>{rate} · {nxt}</span>",
+                       objectName="todoDue", alignment=Qt.AlignRight | Qt.AlignVCenter)
+        stats.setTextFormat(Qt.RichText)
+
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(14, 10, 16, 10)
+        layout.setSpacing(10)
+        layout.addWidget(icon)
+        layout.addLayout(text, 1)
+        layout.addWidget(stats)
+        row.setContextMenuPolicy(Qt.CustomContextMenu)
+        row.customContextMenuRequested.connect(
+            lambda pos, r=rec, w=row: self._series_menu(r, w.mapToGlobal(pos)))
+        row.mouseDoubleClickEvent = lambda _e, r=rec["id"]: self.edit_series(r)
+        return row
+
+    def _series_menu(self, rec: dict, global_pos):
+        menu = QMenu(self)
+        menu.addAction("Edit series…", lambda: self.edit_series(rec["id"]))
+        if rec["active"]:
+            menu.addAction("Stop repeating", lambda: self._stop_series(rec["id"]))
+        else:
+            menu.addAction("Resume repeating", lambda: self._resume_series(rec["id"]))
+        menu.addSeparator()
+        menu.addAction("Delete series…", lambda: self._delete_series(rec["id"]))
+        menu.exec(global_pos)
+
+    def edit_series(self, recurrence_id: int):
+        if TaskDialog(self.db, parent=self, recurrence_id=recurrence_id).exec():
+            self._changed()
+
+    def _stop_series(self, recurrence_id: int):
+        rec = self.db.get_recurrence(recurrence_id)
+        answer = QMessageBox.question(
+            self, "Stop repeating", f'Stop repeating "{rec["title"]}"?\n\nNo new occurrences '
+            "will be created. Today's occurrence and your history are kept. You can resume "
+            "it later from the Recurring list.")
+        if answer == QMessageBox.Yes:
+            self.db.stop_recurrence(recurrence_id)
+            self._changed()
+
+    def _resume_series(self, recurrence_id: int):
+        self.db.resume_recurrence(recurrence_id)
+        self.db.generate_occurrences()
+        self._changed()
+
+    def _delete_series(self, recurrence_id: int):
+        rec = self.db.get_recurrence(recurrence_id)
+        answer = QMessageBox.question(
+            self, "Delete series", f'Delete the recurring task "{rec["title"]}"?\n\n'
+            "Finished and missed occurrences stay in your history (and reports) as normal "
+            "tasks. To keep the series but pause it, use Stop repeating instead.")
+        if answer == QMessageBox.Yes:
+            self.db.delete_recurrence(recurrence_id)
+            self._changed()
 
     def _row(self, task: dict, show_project: bool) -> TaskRow:
         row = TaskRow(task, show_project, date.today())
@@ -592,6 +754,16 @@ class TodoTab(QWidget):
         title = self.add_input.text().strip()
         if not title or self.current == "completed":
             return
+        if self.current == "recurring":
+            dialog = TaskDialog(self.db, parent=self, project_id=self.add_project.project_id())
+            dialog.title_input.setText(title)
+            dialog.estimate_input.setValue(self.estimate_picker.value)
+            dialog.repeat_input.setCurrentIndex(dialog.repeat_input.findData("daily"))
+            if dialog.exec():
+                self.add_input.clear()
+                self.estimate_picker.set_value(0)
+                self._changed()
+            return
         if self.db.find_open_task(title) is not None:
             QMessageBox.warning(self, "Task already exists",
                                 f'There is already an open task called "{title}".')
@@ -613,7 +785,7 @@ class TodoTab(QWidget):
 
     def _toggle_task(self, task_id: int):
         task = self.db.get_task(task_id)
-        if task["status"] == "done":
+        if task["status"] in CLOSED_STATUSES:
             if self.db.find_open_task(task["title"]) is not None:
                 QMessageBox.warning(self, "Can't reopen",
                                     f'There is already an open task called "{task["title"]}".')
@@ -623,17 +795,54 @@ class TodoTab(QWidget):
             self.db.set_task_status(task_id, "done")
         self._changed()
 
+    def show_checklist(self, task_id: int):
+        task = self.db.get_task(task_id)
+        steps = checklist_steps(task)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Checklist – {task['title']}")
+        dialog.setMinimumWidth(360)
+        layout = QVBoxLayout(dialog)
+        boxes = []
+        done = set(checklist_done(task))
+        for i, step in enumerate(steps):
+            box = QCheckBox(step)
+            box.setChecked(i in done)
+            layout.addWidget(box)
+            boxes.append(box)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if not dialog.exec():
+            return
+        ticked = [i for i, box in enumerate(boxes) if box.isChecked()]
+        self.db.set_checklist_done(task_id, ticked)
+        if steps and len(ticked) == len(steps) and task["status"] not in CLOSED_STATUSES:
+            if QMessageBox.question(self, "Checklist complete",
+                                    "All steps are done. Mark the task done?") == QMessageBox.Yes:
+                self.db.set_task_status(task_id, "done")
+        self._changed()
+
     def edit_task(self, task_id: int):
         if TaskDialog(self.db, task_id, parent=self).exec():
             self._changed()
 
     def _row_menu(self, task_id: int, global_pos):
         task = self.db.get_task(task_id)
-        done = task["status"] == "done"
+        done = task["status"] in CLOSED_STATUSES
         menu = QMenu(self)
         if not done:
             menu.addAction("▶  Start pomodoro", lambda: self.start_requested.emit(task_id))
         menu.addAction("Edit…", lambda: self.edit_task(task_id))
+        if checklist_steps(task):
+            menu.addAction("☑  Checklist…", lambda: self.show_checklist(task_id))
+        if task["recurrence_id"]:
+            series = menu.addMenu("↻  Recurring")
+            if not done:
+                series.addAction("Skip this one (mark missed)",
+                                 lambda: self._skip(task_id))
+            series.addAction("Edit series…", lambda: self.edit_series(task["recurrence_id"]))
+            series.addAction("Stop repeating…", lambda: self._stop_series(task["recurrence_id"]))
         if task["notion_url"]:
             menu.addAction("Open in Notion ↗",
                            lambda: QDesktopServices.openUrl(QUrl(task["notion_url"])))
@@ -652,6 +861,10 @@ class TodoTab(QWidget):
         menu.addAction("Delete…", lambda: self._delete(task_id))
         menu.exec(global_pos)
 
+    def _skip(self, task_id: int):
+        self.db.set_task_status(task_id, "missed")
+        self._changed()
+
     def _move(self, task_id: int, project_id: int | None):
         self.db.update_task(task_id, project_id=project_id)
         self._changed()
@@ -662,6 +875,24 @@ class TodoTab(QWidget):
 
     def _delete(self, task_id: int):
         task = self.db.get_task(task_id)
+        if task["recurrence_id"]:
+            box = QMessageBox(self)
+            box.setWindowTitle("Delete")
+            box.setText(f'"{task["title"]}" is a recurring task.')
+            box.setInformativeText("Delete just this occurrence, or the whole series?")
+            this_one = box.addButton("Just this one", QMessageBox.AcceptRole)
+            series = box.addButton("Whole series…", QMessageBox.DestructiveRole)
+            box.addButton(QMessageBox.Cancel)
+            box.exec()
+            if box.clickedButton() is series:
+                self._delete_series(task["recurrence_id"])
+                return
+            if box.clickedButton() is not this_one:
+                return
+            # Keep the day as "missed" rather than deleting it, so it isn't recreated.
+            self.db.set_task_status(task_id, "missed")
+            self._changed()
+            return
         answer = QMessageBox.question(
             self, "Delete task", f'Delete "{task["title"]}"?\n\nIts time stays in your daily '
                                  "totals. Tip: use Mark done if you finished it.")
