@@ -10,12 +10,12 @@ Modes:
 
 from datetime import date
 
-from PySide6.QtCore import QDate, QUrl
+from PySide6.QtCore import QDate, QTime, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
                                QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QVBoxLayout,
-                               QWidget)
+                               QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QTimeEdit,
+                               QVBoxLayout, QWidget)
 
 from pomodoro.database import Database
 from pomodoro.models import DEFAULT_PRIORITY, ENERGY_SLOTS, NATURES, PRIORITIES, STATUSES
@@ -128,6 +128,33 @@ class TaskDialog(QDialog):
         self.month_day_input.setToolTip("29-31 fall back to the last day in shorter months")
         self.summary_label = QLabel(objectName="cardNote", wordWrap=True)
 
+        # Habit cue (Atomic Habits: "I will [do it] at [time] in [place]")
+        self.has_cue = QCheckBox("at")
+        self.cue_time_input = QTimeEdit(displayFormat="HH:mm")
+        self.cue_time_input.setTime(QTime(8, 30))
+        self.cue_place_input = QLineEdit(placeholderText="where, e.g. at my desk")
+        self.cue_widget = QWidget()
+        cue_row = QHBoxLayout(self.cue_widget)
+        cue_row.setContentsMargins(0, 0, 0, 0)
+        cue_row.addWidget(self.has_cue)
+        cue_row.addWidget(self.cue_time_input)
+        cue_row.addWidget(self.cue_place_input, 1)
+        self.remind_input = QCheckBox("Remind me at the cue time")
+        self.remind_input.setChecked(True)
+        self.has_cue.toggled.connect(self.cue_time_input.setEnabled)
+        self.has_cue.toggled.connect(self.remind_input.setEnabled)
+
+        # Habit stacking: "After [current habit], I will [new habit]"
+        self.stack_input = QComboBox()
+        self.stack_input.addItem("Not linked to another task", None)
+        for rec in db.list_recurrences(include_stopped=False):
+            if rec["id"] != self.recurrence_id:
+                self.stack_input.addItem(f"After: {rec['title']}", rec["id"])
+
+        self.two_minute_input = QLineEdit(
+            placeholderText="The smallest version, e.g. open the book and read one page")
+        self.intention_label = QLabel(objectName="intention", wordWrap=True)
+
         self.estimate_input = QSpinBox(minimum=0, maximum=200, suffix=" 🍅",
                                        specialValueText="No estimate")
 
@@ -170,6 +197,11 @@ class TaskDialog(QDialog):
         form.addRow("On", self.weekdays_widget)
         form.addRow("On", self.month_day_input)
         form.addRow("", self.summary_label)
+        form.addRow("Cue", self.cue_widget)
+        form.addRow("", self.remind_input)
+        form.addRow("Stack", self.stack_input)
+        form.addRow("2-minute version", self.two_minute_input)
+        form.addRow("", self.intention_label)
         form.addRow("Estimate", self.estimate_input)
         form.addRow("Status", self.status_input)
         form.addRow("Checklist", self.checklist_input)
@@ -200,9 +232,14 @@ class TaskDialog(QDialog):
             signal.connect(lambda *_: self._update_repeat())
         for box in self.day_boxes:
             box.toggled.connect(lambda *_: self._update_repeat())
+        for signal in (self.has_cue.toggled, self.cue_time_input.timeChanged,
+                       self.cue_place_input.textChanged, self.stack_input.currentIndexChanged,
+                       self.title_input.textChanged, self.two_minute_input.textChanged):
+            signal.connect(lambda *_: self._update_intention())
 
         self._load(task)
         self._update_repeat()
+        self._update_intention()
         self._fit_to_screen(body)
 
     # ---------- layout helpers ----------
@@ -246,6 +283,9 @@ class TaskDialog(QDialog):
         self._set_row_visible(self.weekdays_widget, frequency == "weekly")
         self._set_row_visible(self.month_day_input, frequency == "monthly")
         self._set_row_visible(self.summary_label, repeating)
+        for widget in (self.cue_widget, self.remind_input, self.stack_input,
+                       self.two_minute_input, self.intention_label):
+            self._set_row_visible(widget, repeating)
         # A series has no status of its own; each occurrence has one.
         self._set_row_visible(self.status_input, not self.series_mode and
                               not (repeating and self.task is None))
@@ -267,6 +307,26 @@ class TaskDialog(QDialog):
                     f"{schedule.describe()} – {times} time{'s' if times != 1 else ''}."
                     if times else "⚠ No days match in this range.")
 
+    def _update_intention(self):
+        """Spell the habit out as an implementation intention."""
+        name = " ".join(self.title_input.text().split()) or "do it"
+        parts = []
+        stack = self.stack_input.currentData()
+        if stack is not None:
+            after = self.stack_input.currentText().removeprefix("After: ")
+            parts.append(f"After {after}, I will {name}")
+        else:
+            parts.append(f"I will {name}")
+        if self.has_cue.isChecked():
+            parts[0] += " at " + self.cue_time_input.time().toString("HH:mm")
+        place = self.cue_place_input.text().strip()
+        if place:
+            parts[0] += " " + place
+        text = parts[0] + "."
+        if self.two_minute_input.text().strip():
+            text += f" On a hard day: {self.two_minute_input.text().strip()}."
+        self.intention_label.setText("💡 " + text)
+
     # ---------- load ----------
 
     def _load(self, task: dict | None):
@@ -280,6 +340,9 @@ class TaskDialog(QDialog):
             self.due_input.setEnabled(False)
             self.day_boxes[date.today().weekday()].setChecked(True)
             self.month_day_input.setValue(date.today().day)
+            self.has_cue.setChecked(False)
+            self.cue_time_input.setEnabled(False)
+            self.remind_input.setEnabled(False)
             return
 
         self.title_input.setText(source["title"])
@@ -313,6 +376,16 @@ class TaskDialog(QDialog):
             for i, box in enumerate(self.day_boxes):
                 box.setChecked(i in schedule.weekdays)
             self.month_day_input.setValue(schedule.month_day or schedule.start.day)
+            cue = self.series.get("cue_time")
+            self.has_cue.setChecked(bool(cue))
+            if cue:
+                hours, minutes = (int(x) for x in cue.split(":"))
+                self.cue_time_input.setTime(QTime(hours, minutes))
+            self.cue_place_input.setText(self.series.get("cue_place") or "")
+            self.remind_input.setChecked(bool(self.series.get("remind", 1)))
+            self.stack_input.setCurrentIndex(
+                max(self.stack_input.findData(self.series.get("stack_after_id")), 0))
+            self.two_minute_input.setText(self.series.get("two_minute") or "")
         else:
             # Turning an existing one-off task into a series isn't supported (yet).
             self.repeat_input.setEnabled(False)
@@ -338,7 +411,13 @@ class TaskDialog(QDialog):
         }
 
     def _schedule_values(self, schedule: Schedule) -> dict:
+        cue = self.cue_time_input.time().toString("HH:mm") if self.has_cue.isChecked() else None
         return {
+            "cue_time": cue,
+            "cue_place": self.cue_place_input.text(),
+            "remind": int(self.remind_input.isChecked()),
+            "stack_after_id": self.stack_input.currentData(),
+            "two_minute": self.two_minute_input.text(),
             "frequency": schedule.frequency,
             "workdays_only": int(schedule.workdays_only),
             "weekdays": schedule.weekdays,

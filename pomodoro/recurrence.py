@@ -8,7 +8,7 @@ A series repeats daily, weekly or monthly from its start date until its end date
 
 import calendar
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 FREQUENCIES = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -77,6 +77,58 @@ class Schedule:
             suffix = "last day" if self.month_day >= 31 else ordinal(self.month_day)
             what = f"Monthly on the {suffix}"
         return f"{what} {until}"
+
+
+def streaks(statuses: list[str]) -> tuple[int, int]:
+    """(current, best) runs of done occurrences, oldest first in `statuses`.
+
+    A still-open occurrence at the end (today's) doesn't break the current streak.
+    """
+    best = run = 0
+    for status in statuses:
+        if status == "done":
+            run += 1
+            best = max(best, run)
+        elif status == "missed":
+            run = 0
+    current = 0
+    for status in reversed(statuses):
+        if status == "done":
+            current += 1
+        elif status == "missed":
+            break
+        elif current:          # an open one in the middle can't happen; stop to be safe
+            break
+    return current, best
+
+
+def due_reminders(tasks: list[dict], now: datetime, already: set[int],
+                  window_minutes: int = 15) -> list[dict]:
+    """Today's open occurrences whose cue time has just arrived (within `window_minutes`)."""
+    today = now.date().isoformat()
+    due = []
+    for task in tasks:
+        cue = task.get("cue_time")
+        if (not cue or not task.get("remind") or task["id"] in already
+                or task.get("occurrence_date") != today):
+            continue
+        hours, minutes = (int(part) for part in cue.split(":"))
+        cue_at = now.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+        if cue_at <= now <= cue_at + timedelta(minutes=window_minutes):
+            due.append(task)
+    return due
+
+
+def parse_cue_time(text: str | None) -> str | None:
+    """'8:30' -> '08:30'; blank -> None; anything else raises ValueError."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    hours, minutes = text.split(":")
+    hours, minutes = int(hours), int(minutes)
+    if not (0 <= hours < 24 and 0 <= minutes < 60):
+        raise ValueError("Cue time must be like 08:30")
+    return f"{hours:02d}:{minutes:02d}"
 
 
 def short_date(day: date, today: date | None = None) -> str:

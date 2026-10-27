@@ -21,6 +21,7 @@ from pomodoro.database import Database
 from pomodoro.models import (CATEGORY_PALETTE, CLOSED_STATUSES, ENERGY_SHORT, NATURE_ICONS,
                              NATURES, PRIORITIES, due_label, is_overdue)
 from pomodoro.recurrence import FREQUENCIES
+from pomodoro.ui.history_strip import HistoryStrip
 from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.task_dialog import TaskDialog
 
@@ -149,6 +150,14 @@ class TaskRow(QFrame):
             meta_parts.append(f'<span style="color:{MUTED}">{task["category"]}</span>')
         if task.get("recurrence_id"):
             meta_parts.append(f'<span style="color:#12A594">↻ {task.get("repeat_text") or "Repeats"}</span>')
+            if task.get("cue_time") and not done:
+                where = f" {task['cue_place']}" if task.get("cue_place") else ""
+                meta_parts.append(f'<span style="color:{MUTED}">⏰ {task["cue_time"]}{where}</span>')
+            if task.get("previous_status") == "missed" and not done:
+                meta_parts.append('<span style="color:#CE2C31">missed last time – '
+                                  "don't miss twice</span>")
+            if task.get("showed_up") and task["status"] == "done":
+                meta_parts.append('<span style="color:#18794E">½ showed up</span>')
         elif task.get("nature") in ("habit", "routine"):
             meta_parts.append(f'<span style="color:{MUTED}">{NATURE_ICONS[task["nature"]]} '
                               f'{NATURES[task["nature"]]}</span>')
@@ -642,6 +651,7 @@ class TodoTab(QWidget):
     def _series_row(self, rec: dict) -> QWidget:
         row = QFrame(objectName="todoRow")
         icon = QLabel(NATURE_ICONS.get(rec["nature"], "↻"), objectName="seriesIcon")
+        icon.setFixedWidth(30)
         title = QLabel(rec["title"], objectName="todoTitle")
         if not rec["active"]:
             title.setStyleSheet(f"color: {MUTED};")
@@ -652,9 +662,12 @@ class TodoTab(QWidget):
                       objectName="todoMeta")
         meta.setTextFormat(Qt.RichText)
         text = QVBoxLayout()
-        text.setSpacing(1)
+        text.setSpacing(3)
         text.addWidget(title)
         text.addWidget(meta)
+        history = self.db.history(rec["id"])
+        if history:
+            text.addWidget(HistoryStrip(history), 0, Qt.AlignLeft)
 
         finished = rec["done"] + rec["missed"]
         rate = f"{rec['done'] / finished:.0%} done" if finished else "no history yet"
@@ -663,7 +676,11 @@ class TodoTab(QWidget):
                              else rec["next_date"].strftime("%a %d %b"))
         else:
             nxt = "stopped" if not rec["active"] else "finished"
-        stats = QLabel(f"✓ {rec['done']} &nbsp; ✗ {rec['missed']} &nbsp; of {rec['total']}"
+        streak = (f"🔥 {rec['streak']}-day streak" if rec["streak"] > 1 else
+                  "🔥 1 day" if rec["streak"] == 1 else "No streak yet")
+        best = f" · best {rec['best_streak']}" if rec["best_streak"] > rec["streak"] else ""
+        stats = QLabel(f"<b>{streak}</b>{best}"
+                       f"<br>✓ {rec['done']} &nbsp; ✗ {rec['missed']} &nbsp; of {rec['total']}"
                        f"<br><span style='color:{MUTED}'>{rate} · {nxt}</span>",
                        objectName="todoDue", alignment=Qt.AlignRight | Qt.AlignVCenter)
         stats.setTextFormat(Qt.RichText)
@@ -836,6 +853,9 @@ class TodoTab(QWidget):
         menu.addAction("Edit…", lambda: self.edit_task(task_id))
         if checklist_steps(task):
             menu.addAction("☑  Checklist…", lambda: self.show_checklist(task_id))
+        if task.get("two_minute") and not done:
+            menu.addAction(f"½  Showed up: {task['two_minute']}",
+                           lambda: self._showed_up(task_id))
         if task["recurrence_id"]:
             series = menu.addMenu("↻  Recurring")
             if not done:
@@ -860,6 +880,11 @@ class TodoTab(QWidget):
         menu.addSeparator()
         menu.addAction("Delete…", lambda: self._delete(task_id))
         menu.exec(global_pos)
+
+    def _showed_up(self, task_id: int):
+        """Did the two-minute version: the day counts, so the streak continues."""
+        self.db.mark_showed_up(task_id)
+        self._changed()
 
     def _skip(self, task_id: int):
         self.db.set_task_status(task_id, "missed")

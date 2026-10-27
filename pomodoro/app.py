@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -14,6 +14,7 @@ from pomodoro.database import Database
 from pomodoro.hotkey import GlobalHotkey
 from pomodoro.models import ENERGY_SHORT, PRIORITIES, due_label, pomodoro_progress
 from pomodoro.priority import ScoredTask, ScoreWeights, day_summary, rank_tasks, should_warn
+from pomodoro.recurrence import due_reminders
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
 from pomodoro.ui.main_window import MainWindow
 from pomodoro.ui.mini_window import MiniWindow
@@ -105,7 +106,13 @@ class PomodoroApp:
             self.tray.toggle_mini.connect(self.toggle_mini)
             self.tray.open_settings.connect(self.open_settings)
             self.tray.quit_app.connect(self.quit)
+            self.tray.messageClicked.connect(self._on_notification_clicked)
             self.tray.show()
+        # The task a notification is about (clicking it starts a pomodoro on it).
+        self._notification_task: int | None = None
+        self._reminded: set[int] = set()          # occurrences already reminded today
+        self._last_reminder_check = datetime.min
+        db.on_task_done.append(self._on_task_done)
         self._told_about_tray = False
 
         self.window.settings_button.clicked.connect(self.open_settings)
@@ -395,8 +402,12 @@ class PomodoroApp:
     def _tick(self):
         self.timer.tick()
         self._refresh_display()
+        if datetime.now() - self._last_reminder_check >= timedelta(seconds=20):
+            self._last_reminder_check = datetime.now()
+            self._check_reminders()
         if date.today() != self._today:          # past midnight: a new day's routine
             self._today = date.today()
+            self._reminded.clear()
             self.db.generate_occurrences()
             self._on_tasks_changed()
             self.tasks_tab.refresh()
@@ -549,11 +560,53 @@ class PomodoroApp:
         self._refresh_task_info()
         self._refresh_focus_next()
 
-    def _notify(self, title: str, message: str):
+    def _notify(self, title: str, message: str, task_id: int | None = None):
+        """Show a notification. If it's about a task, clicking it starts that task."""
+        self._notification_task = task_id
         if self.tray:
             self.tray.notify(title, message)
         else:
             self.show_window()
+
+    def _on_notification_clicked(self):
+        task_id, self._notification_task = self._notification_task, None
+        if task_id is not None and self.db.get_task(task_id) is not None:
+            self.start_task(task_id)
+        else:
+            self.show_window()
+
+    # ---------- habits: reminders and stacking ----------
+
+    def _check_reminders(self):
+        """Remind about habits/routines whose cue time has just arrived."""
+        for task in due_reminders(self.db.list_tasks("open"), datetime.now(), self._reminded):
+            self._reminded.add(task["id"])
+            where = f" {task['cue_place']}" if task.get("cue_place") else ""
+            message = f"Time for: {task['title']}{where}."
+            if task.get("two_minute"):
+                message += f"\nToo busy? Just: {task['two_minute']}"
+            message += "\nClick to start a pomodoro."
+            self._notify(f"⏰ {task['cue_time']} · {task['title']}", message, task["id"])
+
+    def _on_task_done(self, task_id: int):
+        """Habit stacking: finishing one suggests the habit stacked after it."""
+        task = self.db.get_task(task_id)
+        if not task or not task["recurrence_id"]:
+            return
+        for follower in self.db.followers(task["recurrence_id"]):
+            row = self.db.conn.execute(
+                "SELECT id FROM tasks WHERE recurrence_id = ? AND occurrence_date = ? "
+                "AND status NOT IN ('done', 'missed')",
+                (follower["id"], date.today().isoformat())).fetchone()
+            if row is None:
+                continue
+            if not self._focus_in_progress():
+                self.window.set_task_name(follower["title"])
+            self.window.show_hint(f'Next in your stack: "{follower["title"]}".')
+            self._notify("✓ Done – next in your stack",
+                         f"After {task['title']}: {follower['title']}.\n"
+                         "Click to start a pomodoro.", row["id"])
+            return
 
     # ---------- window / app lifecycle ----------
 

@@ -115,6 +115,8 @@ QLabel#todoTitle { font-size: 14px; color: #1C2024; }
 QLabel#todoComing { font-size: 13px; color: #8B8D98; background: #F7F7F9; border-radius: 8px;
                     padding: 9px 14px; border: 1px dashed #E0E1E6; }
 QLabel#seriesIcon { font-size: 18px; background: transparent; }
+QLabel#intention { font-size: 12px; color: #18794E; background: #EAF7EF; border-radius: 6px;
+                   padding: 6px 8px; }
 QLabel#todoMeta { font-size: 12px; }
 QLabel#todoDue { font-size: 12px; color: #8B8D98; }
 QLabel#todoGroup { font-size: 13px; color: #1C2024; background: transparent; }

@@ -49,6 +49,25 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Habits: cues, stacking, streaks (v1.4)
+
+Based on *Atomic Habits*. These options appear in the task form when **Repeat** is on:
+
+- **Cue** - *at [time] [place]*, e.g. *08:30 at my desk*. With **Remind me**, a Windows
+  notification appears at that time; click it to start a pomodoro.
+- **Stack** - *After [another recurring task]*: when you finish that one, the app suggests
+  this one next (notification + it's put in the Timer's task box).
+- **2-minute version** - the smallest form of the habit. On a hard day right-click the
+  task -> **Showed up**: the day counts (½) and your streak continues.
+- The form spells it out: *"I will Read 1 pomodoro at 08:30 at my desk. On a hard day:
+  Read one page."*
+- **Recurring** list: a **day-by-day strip** per series (✓ done, ½ showed up, ✗ missed,
+  ○ today, grey = coming days; hover for date and pomodoros) and **🔥 streak / best**.
+- **Never miss twice**: if last time was missed, today's occurrence gets +30 Focus Score
+  points (Settings -> Focus Score -> *Missed last time*), shows *"don't miss twice"* and
+  counts as urgent.
+- New series never mark days **before you created them** as missed.
+
 ### Recurring tasks, kind of work and checklists (v1.3)
 
 - **Repeat** in the task form: *Daily* (every day or working days only), *Weekly* (pick the
@@ -231,6 +250,7 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/recurrence.py` | Repeat rules: daily / weekly / monthly dates - plain Python |
 | `pomodoro/lists.py` | What each To-Do list contains, its totals, sorting, grouping |
 | `pomodoro/ui/todo_tab.py` | The To-Do tab (sidebar, totals, quick add, task rows) |
+| `pomodoro/ui/history_strip.py` | Day-by-day strip for a recurring task |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
 | `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |

@@ -18,7 +18,7 @@ from pathlib import Path
 from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
                              DEFAULT_TYPES, ENERGY_SLOTS, EXTRA_CATEGORY_COLOR, NATURES,
                              OLD_DEFAULT_COLORS, PRIORITIES, STATUSES)
-from pomodoro.recurrence import Schedule, schedule_from_row
+from pomodoro.recurrence import Schedule, parse_cue_time, schedule_from_row, streaks
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -151,6 +151,8 @@ class Database:
         self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
+        # Functions called with a task id when a task is marked done (e.g. habit stacking).
+        self.on_task_done: list = []
         self.conn.executescript(SCHEMA)
         self._migrate()
         self._seed_settings()
@@ -173,6 +175,17 @@ class Database:
                                  ("checklist", "TEXT"), ("checklist_done", "TEXT")]:
                 if column not in columns:     # v1.3: recurring tasks, kind of work, checklists
                     self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {kind}")
+            if "showed_up" not in columns:    # v1.4: done via the two-minute version
+                self.conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN showed_up INTEGER NOT NULL DEFAULT 0")
+            rec_columns = {row["name"] for row in
+                           self.conn.execute("PRAGMA table_info(recurrences)")}
+            for column, kind in [("cue_time", "TEXT"), ("cue_place", "TEXT"),
+                                 ("stack_after_id", "INTEGER REFERENCES recurrences(id)"),
+                                 ("two_minute", "TEXT"),
+                                 ("remind", "INTEGER NOT NULL DEFAULT 1")]:
+                if column not in rec_columns:  # v1.4: habits
+                    self.conn.execute(f"ALTER TABLE recurrences ADD COLUMN {column} {kind}")
             self.conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_occurrence "
                 "ON tasks(recurrence_id, occurrence_date) WHERE recurrence_id IS NOT NULL")
@@ -542,7 +555,13 @@ class Database:
         fields = self._clean_task_fields(fields)
         if not fields:
             return
+        newly_done = False
         if "status" in fields:
+            before = self.conn.execute("SELECT status FROM tasks WHERE id = ?",
+                                       (task_id,)).fetchone()
+            newly_done = fields["status"] == "done" and before and before["status"] != "done"
+            if fields["status"] != "done":
+                fields["showed_up"] = 0
             # Record when a task is finished; clear it again if the task is reopened.
             done = fields["status"] == "done"
             fields["completed_at"] = datetime.now().isoformat(timespec="seconds") if done else None
@@ -554,9 +573,20 @@ class Database:
         with self.conn:
             self.conn.execute(f"UPDATE tasks SET {assignments} WHERE id = ?",
                               [*fields.values(), task_id])
+        if newly_done:
+            for callback in list(self.on_task_done):
+                callback(task_id)
 
     def set_task_status(self, task_id: int, status: str):
         self.update_task(task_id, status=status)
+
+    def mark_showed_up(self, task_id: int):
+        """Done with the two-minute version: counts for the streak, flagged as 'showed up'."""
+        with self.conn:
+            self.conn.execute("UPDATE tasks SET showed_up = 1 WHERE id = ?", (task_id,))
+        self.update_task(task_id, status="done")
+        with self.conn:                      # update_task resets it only for non-done
+            self.conn.execute("UPDATE tasks SET showed_up = 1 WHERE id = ?", (task_id,))
 
     def delete_task(self, task_id: int):
         """Delete a task. Its logged time is kept (unassigned) so daily totals stay right."""
@@ -569,11 +599,17 @@ class Database:
     _TASK_SELECT = """
         SELECT t.*, c.name AS category, c.color AS category_color,
                p.name AS project, p.color AS project_color,
+               r.cue_time, r.cue_place, r.two_minute, r.remind, r.stack_after_id,
+               (SELECT prev.status FROM tasks prev
+                 WHERE prev.recurrence_id = t.recurrence_id
+                   AND prev.occurrence_date < t.occurrence_date
+                 ORDER BY prev.occurrence_date DESC LIMIT 1) AS previous_status,
                COALESCE(SUM(CASE WHEN s.kind = 'focus' THEN s.completed END), 0) AS pomodoros,
                COALESCE(SUM(CASE WHEN s.kind = 'focus' THEN s.duration_min END), 0) AS focus_minutes
         FROM tasks t
         LEFT JOIN categories c ON c.id = t.category_id
         LEFT JOIN projects p ON p.id = t.project_id
+        LEFT JOIN recurrences r ON r.id = t.recurrence_id
         LEFT JOIN sessions s ON s.task_id = t.id
     """
 
@@ -624,7 +660,8 @@ class Database:
 
     RECURRENCE_FIELDS = ("title", "project_id", "category_id", "type", "priority",
                          "estimate_pomodoros", "energy_slot", "nature", "notes", "notion_url",
-                         "checklist", "frequency", "workdays_only", "weekdays", "month_day",
+                         "checklist", "cue_time", "cue_place", "stack_after_id", "two_minute",
+                         "remind", "frequency", "workdays_only", "weekdays", "month_day",
                          "start_date", "end_date")
     # Template fields copied onto each occurrence
     _COPIED = ("title", "project_id", "category_id", "type", "priority", "estimate_pomodoros",
@@ -637,6 +674,14 @@ class Database:
         fields = dict(fields)
         if isinstance(fields.get("weekdays"), (list, tuple, set)):
             fields["weekdays"] = ",".join(str(d) for d in sorted(fields["weekdays"]))
+        if "cue_time" in fields:
+            fields["cue_time"] = parse_cue_time(fields["cue_time"])
+        for text in ("cue_place", "two_minute"):
+            if text in fields:
+                fields[text] = " ".join((fields[text] or "").split()) or None
+        if fields.get("stack_after_id") is not None and current is not None \
+                and fields["stack_after_id"] == current.get("id"):
+            raise ValueError("A habit can't be stacked after itself")
         task_like = {k: v for k, v in fields.items() if k in self.TASK_FIELDS}
         fields.update(self._clean_task_fields(task_like))
         if fields.get("type") is None and current is None:
@@ -714,7 +759,10 @@ class Database:
             last = self.conn.execute(
                 "SELECT MAX(occurrence_date) FROM tasks WHERE recurrence_id = ?",
                 (rec["id"],)).fetchone()[0]
-            first = date.fromisoformat(last) + timedelta(days=1) if last else schedule.start
+            # Never create (or count as missed) days before the series existed.
+            born = date.fromisoformat(rec["created_at"][:10])
+            first = (date.fromisoformat(last) + timedelta(days=1) if last
+                     else max(schedule.start, born))
             due = schedule.dates(first, today, working_days)
             if not due:
                 continue
@@ -776,8 +824,58 @@ class Database:
             rec["describe"] = schedule.describe()
             rec["next_date"] = (schedule.next_date(today, working_days)
                                 if rec["active"] else None)
+            statuses = [r[0] for r in self.conn.execute(
+                "SELECT status FROM tasks WHERE recurrence_id = ? ORDER BY occurrence_date",
+                (rec["id"],))]
+            rec["streak"], rec["best_streak"] = streaks(statuses)
             result.append(rec)
         return result
+
+    def history(self, recurrence_id: int, today: date | None = None, past: int = 20,
+                future: int = 3, working_days: set[int] | None = None) -> list[dict]:
+        """The last `past` scheduled days up to today plus the next `future` ones.
+
+        Each: {'date', 'status' ('done'|'missed'|'open'|'future'), 'showed_up', 'pomodoros'}.
+        """
+        today = today or date.today()
+        working_days = self.get_working_days() if working_days is None else working_days
+        rec = self.get_recurrence(recurrence_id)
+        schedule = schedule_from_row(rec)
+        created = date.fromisoformat(rec["created_at"][:10])
+        rows = {r["occurrence_date"]: dict(r) for r in self.conn.execute(
+            "SELECT t.occurrence_date, t.status, t.showed_up, "
+            "  COALESCE(SUM(CASE WHEN s.kind = 'focus' THEN s.completed END), 0) AS pomodoros "
+            "FROM tasks t LEFT JOIN sessions s ON s.task_id = t.id "
+            "WHERE t.recurrence_id = ? GROUP BY t.id", (recurrence_id,))}
+        first = max(schedule.start, created)
+        # A stopped series has no days after its last occurrence.
+        last = today if rec["active"] else max(
+            (date.fromisoformat(d) for d in rows), default=first - timedelta(days=1))
+        past_days = schedule.dates(first, min(today, last), working_days)[-past:]
+        result = []
+        for day in past_days:
+            row = rows.get(day.isoformat())
+            status = row["status"] if row else ("open" if day == today else "missed")
+            if status not in ("done", "missed"):
+                status = "open"
+            result.append({"date": day, "status": status,
+                           "showed_up": bool(row and row["showed_up"]),
+                           "pomodoros": row["pomodoros"] if row else 0})
+        if rec["active"]:
+            day = today
+            for _ in range(future):
+                day = schedule.next_date(day, working_days)
+                if day is None:
+                    break
+                result.append({"date": day, "status": "future", "showed_up": False,
+                               "pomodoros": 0})
+        return result
+
+    def followers(self, recurrence_id: int) -> list[dict]:
+        """Active series stacked right after this one ("After X, I will Y")."""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM recurrences WHERE stack_after_id = ? AND active = 1",
+            (recurrence_id,))]
 
     def find_open_task(self, title: str) -> int | None:
         """Id of the open task with this title (case-insensitive, extra spaces ignored)."""

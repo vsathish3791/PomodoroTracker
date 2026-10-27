@@ -14,6 +14,12 @@ def day(n: int) -> date:
     return MON + timedelta(days=n)
 
 
+def backdate(db: Database):
+    """Tests simulate days before the real today: pretend the series are old."""
+    with db.conn:
+        db.conn.execute("UPDATE recurrences SET created_at = '2026-01-01T00:00:00'")
+
+
 class RecurringTaskTests(unittest.TestCase):
     def setUp(self):
         self.db = Database(":memory:")
@@ -22,6 +28,7 @@ class RecurringTaskTests(unittest.TestCase):
             "Standup notes", project_id=self.work, estimate_pomodoros=1, frequency="daily",
             start_date=MON.isoformat(), end_date=day(11).isoformat(),
             checklist="- Yesterday\n- Today\n\n- Blockers")
+        backdate(self.db)
 
     def tearDown(self):
         self.db.close()
@@ -128,6 +135,7 @@ class RecurringTaskTests(unittest.TestCase):
     def test_weekly_on_chosen_days(self):
         rec = self.db.create_recurrence("Report", frequency="weekly", weekdays=[0, 3],
                                         start_date=MON.isoformat(), end_date=day(13).isoformat())
+        backdate(self.db)
         self.db.generate_occurrences(day(10), WEEKDAYS)       # Thursday of week 2
         dates = [r[0] for r in self.db.conn.execute(
             "SELECT occurrence_date FROM tasks WHERE recurrence_id = ? ORDER BY 1", (rec,))]
@@ -156,6 +164,7 @@ class RecurringReportTests(unittest.TestCase):
         db = Database(":memory:")
         rec = db.create_recurrence("Standup", estimate_pomodoros=2, frequency="daily",
                                    start_date=MON.isoformat(), end_date=day(11).isoformat())
+        backdate(db)
         db.generate_occurrences(MON, WEEKDAYS)
         db.set_task_status(db.find_open_task("Standup"), "done")
         db.generate_occurrences(day(2), WEEKDAYS)               # Tue missed, Wed open

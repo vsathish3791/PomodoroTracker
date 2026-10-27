@@ -19,6 +19,7 @@ WEIGHT_LABELS = [
     ("overdue", "Overdue"), ("due_today", "Due today"), ("due_tomorrow", "Due tomorrow"),
     ("within_3_days", "Due within 3 days"), ("within_7_days", "Due within 7 days"),
     ("at_risk", "At risk (bonus)"),
+    ("never_miss_twice", "Missed last time"),
 ]
 
 
