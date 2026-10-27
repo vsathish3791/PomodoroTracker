@@ -2,10 +2,11 @@
 
 import os
 import sys
+from pathlib import Path
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QPoint, QTimer
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
@@ -54,7 +55,7 @@ class PomodoroApp:
         self._dismissed_warnings: set[tuple] = set()
 
         self.window = MainWindow()
-        self.window.setWindowIcon(make_icon(PHASE_COLORS[Phase.FOCUS]))
+        self.window.setWindowIcon(app_icon())
         self.window.start_button.clicked.connect(self.start_or_pause)
         self.window.task_entered.connect(self._on_task_entered)
         self.window.skip_button.clicked.connect(self.timer.skip)
@@ -663,8 +664,32 @@ def listen_for_second_launch(pomodoro_app: PomodoroApp) -> QLocalServer:
     return server
 
 
+APP_ID = "vsathish3791.PomodoroTracker"          # Windows taskbar identity
+ICON_FILE = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+
+
+def app_icon() -> QIcon:
+    """The red "25" tomato: from assets/icon.ico, or drawn if the file isn't there."""
+    if ICON_FILE.exists():
+        return QIcon(str(ICON_FILE))
+    return make_icon(PHASE_COLORS[Phase.FOCUS], "25")
+
+
+def set_windows_app_id():
+    """Started via pythonw.exe, Windows would group the app under Python and show
+    Python's icon on the taskbar. An explicit app id makes it use our own icon."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except (AttributeError, OSError):
+            pass
+
+
 def run():
+    set_windows_app_id()                 # must happen before any window is created
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     app.setApplicationName("Pomodoro Tracker")
     app.setApplicationVersion(__version__)
     app.setQuitOnLastWindowClosed(False)  # keep running in the tray
