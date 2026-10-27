@@ -77,7 +77,7 @@ class NotionTests(unittest.TestCase):
     def test_friendly_errors(self):
         with self.assertRaisesRegex(NotionError, "token"):
             NotionClient("bad", FakeNotion(status=401)).database_title(JOURNAL)
-        with self.assertRaisesRegex(NotionError, "Share it"):
+        with self.assertRaisesRegex(NotionError, "Add your integration"):
             NotionClient("ok", FakeNotion(status=404)).database_title(JOURNAL)
         with self.assertRaises(NotionError):
             NotionClient("")

@@ -69,13 +69,20 @@ class NotionClient:
         if status == 401:
             raise NotionError("Notion didn't accept the token. Check it in Settings -> Notion.")
         if status == 404:
-            raise NotionError("Notion can't find that page or database. Share it with your "
-                              "integration (••• -> Connections) and check the link.")
+            raise NotionError("Notion can't find that page or database. Add your integration "
+                              "to it (••• -> Connections) and check the link. "
+                              f"(Notion: {data.get('message', 'not found')})")
         if status >= 400:
             raise NotionError(f"Notion error {status}: {data.get('message', 'unknown error')}")
         return data
 
     # ---------- checks ----------
+
+    def whoami(self) -> str:
+        """The integration's name and workspace, e.g. 'Pomodoro Tracker in My Workspace'."""
+        data = self.request("GET", "/users/me")
+        workspace = data.get("bot", {}).get("workspace_name") or "your workspace"
+        return f"“{data.get('name') or 'integration'}” in {workspace}"
 
     def database_title(self, database_id: str) -> str:
         data = self.request("GET", f"/databases/{database_id}")

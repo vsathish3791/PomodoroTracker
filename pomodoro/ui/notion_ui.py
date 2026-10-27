@@ -110,22 +110,27 @@ class NotionPage(QWidget):
 
         def work():
             client = NotionClient(token)
-            found = []
+            lines = [f"Secret ✓ {client.whoami()}"]      # a bad secret stops here
+            checks = []
             if journal:
-                client.journal_fields(parse_id(journal))
-                found.append(f"Journal ✓ “{client.database_title(parse_id(journal))}”")
+                checks.append(("Journal", lambda: client.journal_fields(parse_id(journal))
+                               and client.database_title(parse_id(journal))))
             if weekly:
-                found.append(f"Weekly page ✓ “{client.page_title(parse_id(weekly))}”")
-            if not found:
-                client.request("GET", "/users/me")
-                found.append("Secret ✓ – now add the links")
-            return " · ".join(found)
-
-        self.test.setEnabled(False)
-        self.result.setText("Checking…")
+                checks.append(("Weekly page", lambda: client.page_title(parse_id(weekly))))
+            for name, check in checks:
+                try:
+                    lines.append(f"{name} ✓ “{check()}”")
+                except NotionError as error:
+                    lines.append(f"{name} ✗ {error}")
+            if not checks:
+                lines.append("Now add the links.")
+            return "\n".join(lines)
 
         def done(text, error):
             self.test.setEnabled(True)
             self.result.setText(text or f"✗ {error}")
+
+        self.test.setEnabled(False)
+        self.result.setText("Checking…")
 
         run_in_background(self, work, done)
