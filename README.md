@@ -49,6 +49,24 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Goals and the control panel (v1.6)
+
+A new **Goals** tab (Falconi: control items with targets; Clear: systems over goals):
+
+- **Control panel** - *your system* (lead measures): focus per working day vs your daily
+  goal, habit consistency, routine done, distractions per pomodoro; and *results* (lag
+  measures): finished on time, estimate accuracy, improvement share. Each tile shows
+  **● On track / ▲ Behind / ■ Off track** (hover for how it's measured).
+- **Goals**: *Weekly rhythm* ("Learning AI: at least 10 🍅 every week", judged against how
+  far into the working week you are) or *Target by a date* ("Career: 40 🍅 by 30 Nov",
+  with a forecast from your last two weeks' pace). Scope: all work, a project, a kind of
+  work or a category. Right-click or double-click to edit.
+- **Time split this week**: Routine / Habit / Improvement against your targets
+  (**Change targets...**, must add up to 100%).
+- **Compounding**: your running total of pomodoros, for all work or one scope.
+- **Learned estimates**: the task form suggests *"Usually ~2 🍅 for Development (median
+  of 4 finished tasks)"* with a **Use** button.
+
 ### Interruptions and misses (v1.5)
 
 Falconi's anomaly handling: find out why focus time is lost, then fix the biggest cause.
@@ -269,6 +287,8 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/lists.py` | What each To-Do list contains, its totals, sorting, grouping |
 | `pomodoro/ui/todo_tab.py` | The To-Do tab (sidebar, totals, quick add, task rows) |
 | `pomodoro/ui/history_strip.py` | Day-by-day strip for a recurring task |
+| `pomodoro/goals.py` | Goals, control panel, time split, learned estimates - plain Python |
+| `pomodoro/ui/goals_tab.py` | The Goals tab |
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
 | `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |

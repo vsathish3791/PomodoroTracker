@@ -23,6 +23,7 @@ from pomodoro.ui.mini_window import MiniWindow
 from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
+from pomodoro.ui.goals_tab import GoalsTab
 from pomodoro.ui.reports_tab import ReportsTab
 from pomodoro.ui.tasks_tab import TasksTab
 from pomodoro.ui.todo_tab import TodoTab
@@ -96,6 +97,9 @@ class PomodoroApp:
             self.db.get_working_days(), self.reserved_time())
         self.deadlines_tab.start_requested.connect(self.start_task)
         self.window.tabs.addTab(self.deadlines_tab, "Deadlines")
+
+        self.goals_tab = GoalsTab(db)
+        self.window.tabs.addTab(self.goals_tab, "Goals")
 
         self.reports_tab = ReportsTab(db)
         self.reports_tab.tasks_changed.connect(self._on_tasks_changed)
@@ -559,7 +563,7 @@ class PomodoroApp:
 
     def _refresh_open_tab(self):
         current = self.window.tabs.currentWidget()
-        if current in (self.reports_tab, self.deadlines_tab, self.todo_tab):
+        if current in (self.reports_tab, self.deadlines_tab, self.todo_tab, self.goals_tab):
             current.refresh()
 
     def _refresh_focus_next(self):

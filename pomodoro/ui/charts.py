@@ -223,3 +223,88 @@ class ColumnChart(QWidget):
             QToolTip.showText(event.globalPosition().toPoint(), self.bars[index].tooltip, self)
         else:
             QToolTip.hideText()
+
+
+class CumulativeChart(QWidget):
+    """Running total over time - small daily effort adds up (the compounding view)."""
+    LEFT, RIGHT, TOP, BOTTOM = 40, 60, 14, 24
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.points: list[tuple] = []     # (date, running total)
+        self.setMouseTracking(True)
+        self.setFixedHeight(190)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def set_points(self, points: list[tuple]):
+        self.points = points
+        self.update()
+
+    def _plot(self) -> QRectF:
+        return QRectF(self.LEFT, self.TOP, self.width() - self.LEFT - self.RIGHT,
+                      self.height() - self.TOP - self.BOTTOM)
+
+    def _xy(self, index: int, value: float, top: float) -> tuple[float, float]:
+        plot = self._plot()
+        x = plot.left() + plot.width() * index / max(len(self.points) - 1, 1)
+        y = plot.bottom() - plot.height() * value / top
+        return x, y
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        font = QFont(self.font())
+        font.setPixelSize(11)
+        painter.setFont(font)
+        plot = self._plot()
+        if not self.points or self.points[-1][1] == 0:
+            painter.setPen(TEXT_MUTED)
+            painter.drawText(self.rect(), Qt.AlignCenter, "No pomodoros yet in this scope.")
+            return
+        top = max(self.points[-1][1], 1)
+        for i in range(5):                       # recessive gridlines
+            y = plot.bottom() - plot.height() * i / 4
+            painter.setPen(QPen(GRID, 1))
+            painter.drawLine(plot.left(), y, plot.right(), y)
+            painter.setPen(TEXT_MUTED)
+            painter.drawText(QRectF(0, y - 8, self.LEFT - 6, 16), Qt.AlignRight | Qt.AlignVCenter,
+                             f"{top * i / 4:.0f}")
+        line = QPainterPath()
+        area = QPainterPath()
+        for i, (_, value) in enumerate(self.points):
+            x, y = self._xy(i, value, top)
+            if i == 0:
+                line.moveTo(x, y)
+                area.moveTo(x, plot.bottom())
+            else:
+                line.lineTo(x, y)
+            area.lineTo(x, y)
+        area.lineTo(self._xy(len(self.points) - 1, 0, top)[0], plot.bottom())
+        area.closeSubpath()
+        fill = QColor(DEFAULT_BAR)
+        fill.setAlpha(40)
+        painter.fillPath(area, fill)
+        painter.setPen(QPen(QColor(DEFAULT_BAR), 2))
+        painter.drawPath(line)
+        last_x, last_y = self._xy(len(self.points) - 1, self.points[-1][1], top)
+        painter.setBrush(QColor(DEFAULT_BAR))
+        painter.drawEllipse(QRectF(last_x - 4, last_y - 4, 8, 8))
+        painter.setPen(TEXT)
+        painter.drawText(QRectF(last_x + 8, last_y - 9, self.RIGHT, 18),
+                         Qt.AlignLeft | Qt.AlignVCenter, f"{self.points[-1][1]} 🍅")
+        painter.setPen(TEXT_SECONDARY)
+        painter.drawText(QRectF(plot.left(), plot.bottom() + 4, 120, 16), Qt.AlignLeft,
+                         self.points[0][0].strftime("%d %b"))
+        painter.drawText(QRectF(plot.right() - 120, plot.bottom() + 4, 120, 16), Qt.AlignRight,
+                         self.points[-1][0].strftime("%d %b"))
+
+    def mouseMoveEvent(self, event):
+        if not self.points:
+            return
+        plot = self._plot()
+        index = round((event.position().x() - plot.left()) / plot.width()
+                      * max(len(self.points) - 1, 1))
+        if 0 <= index < len(self.points):
+            day, total = self.points[index]
+            QToolTip.showText(event.globalPosition().toPoint(),
+                              f"{day.strftime('%a %d %b')}: {total} 🍅 in total", self)

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDialog
                                QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QTimeEdit,
                                QVBoxLayout, QWidget)
 
+from pomodoro import goals
 from pomodoro.database import Database
 from pomodoro.models import (DEFAULT_PRIORITY, ENERGY_SLOTS, NATURE_HINTS, NATURES, PRIORITIES,
                              STATUSES)
@@ -161,6 +162,17 @@ class TaskDialog(QDialog):
 
         self.estimate_input = QSpinBox(minimum=0, maximum=200, suffix=" 🍅",
                                        specialValueText="No estimate")
+        # Learned estimate (Falconi's "standard time"): what similar tasks really took.
+        self.estimate_hint = QLabel(objectName="cardNote", wordWrap=True)
+        self.estimate_use = QPushButton("Use", objectName="small")
+        self.estimate_use.clicked.connect(
+            lambda: self.estimate_input.setValue(self._suggestion[0]))
+        self.estimate_hint_widget = QWidget()
+        hint_row = QHBoxLayout(self.estimate_hint_widget)
+        hint_row.setContentsMargins(0, 0, 0, 0)
+        hint_row.addWidget(self.estimate_hint, 1)
+        hint_row.addWidget(self.estimate_use)
+        self._suggestion = None
 
         self.status_input = QComboBox()
         for key, label in STATUSES.items():
@@ -208,6 +220,7 @@ class TaskDialog(QDialog):
         form.addRow("2-minute version", self.two_minute_input)
         form.addRow("", self.intention_label)
         form.addRow("Estimate", self.estimate_input)
+        form.addRow("", self.estimate_hint_widget)
         form.addRow("Status", self.status_input)
         form.addRow("Checklist", self.checklist_input)
         form.addRow("Notes", self.notes_input)
@@ -244,6 +257,9 @@ class TaskDialog(QDialog):
 
         self._load(task)
         self.nature_hint.setText(NATURE_HINTS.get(self.nature_input.currentData(), ""))
+        self.category_input.currentTextChanged.connect(lambda _: self._update_estimate_hint())
+        self.type_input.currentIndexChanged.connect(lambda _: self._update_estimate_hint())
+        self._update_estimate_hint()
         self._update_repeat()
         self._update_intention()
         self._fit_to_screen(body)
@@ -312,6 +328,21 @@ class TaskDialog(QDialog):
                 self.summary_label.setText(
                     f"{schedule.describe()} – {times} time{'s' if times != 1 else ''}."
                     if times else "⚠ No days match in this range.")
+
+    def _update_estimate_hint(self):
+        name = " ".join(self.category_input.currentText().split())
+        row = self.db.conn.execute("SELECT id FROM categories WHERE name = ? COLLATE NOCASE",
+                                   (name,)).fetchone() if name else None
+        self._suggestion = goals.suggest_estimate(self.db, row[0] if row else None,
+                                                  self.type_input.currentData())
+        if self._suggestion:
+            value, samples, label = self._suggestion
+            self.estimate_hint.setText(f"Usually ~{value} 🍅 for {label} "
+                                       f"(median of {samples} finished tasks).")
+        self.estimate_hint_widget.setVisible(self._suggestion is not None)
+        label = self.form.labelForField(self.estimate_hint_widget)
+        if label is not None:
+            label.setVisible(self._suggestion is not None)
 
     def _update_intention(self):
         """Spell the habit out as an implementation intention."""

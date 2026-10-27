@@ -111,6 +111,19 @@ CREATE TABLE IF NOT EXISTS anomalies (
     happened_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS goals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    kind        TEXT NOT NULL,           -- weekly | by_date (see goals.py)
+    scope_kind  TEXT NOT NULL,           -- all | project | category | nature
+    scope_value TEXT,                    -- project/category id or kind-of-work key
+    value       INTEGER NOT NULL,        -- pomodoros
+    start_date  TEXT NOT NULL,
+    deadline    TEXT,                    -- by_date goals only
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -137,6 +150,7 @@ DEFAULT_SETTINGS = {
     "mini_window_visible": "0",
     "mini_window_pos": "",          # "x,y" of the mini timer
     "last_project_id": "",          # project picked most recently for a new task
+    "nature_targets": "{}",         # target split Routine/Habit/Improvement in % (JSON)
     "sound_enabled": "1",
 }
 
@@ -950,6 +964,64 @@ class Database:
         return self.conn.execute(
             "SELECT COUNT(*) FROM anomalies WHERE kind = 'distraction' AND happened_at >= ?",
             (since,)).fetchone()[0]
+
+    # ---------- goals ----------
+
+    def create_goal(self, title: str, kind: str, scope_kind: str, scope_value, value: int,
+                    deadline: str | None = None, start_date: str | None = None) -> int:
+        fields = self._clean_goal(dict(title=title, kind=kind, scope_kind=scope_kind,
+                                       scope_value=scope_value, value=value, deadline=deadline))
+        fields["start_date"] = start_date or date.today().isoformat()
+        fields["created_at"] = datetime.now().isoformat(timespec="seconds")
+        with self.conn:
+            return self.conn.execute(
+                f"INSERT INTO goals ({', '.join(fields)}) VALUES ({', '.join('?' * len(fields))})",
+                list(fields.values())).lastrowid
+
+    def _clean_goal(self, fields: dict) -> dict:
+        fields = dict(fields)
+        if "title" in fields:
+            fields["title"] = " ".join((fields["title"] or "").split())
+            if not fields["title"]:
+                raise ValueError("A goal needs a name")
+        if fields.get("kind") not in (None, "weekly", "by_date"):
+            raise ValueError("Goal kind must be weekly or by_date")
+        if fields.get("scope_kind") not in (None, "all", "project", "category", "nature"):
+            raise ValueError("Unknown goal scope")
+        if "value" in fields and (not isinstance(fields["value"], int) or fields["value"] < 1):
+            raise ValueError("The target must be at least 1 pomodoro")
+        if fields.get("kind") == "by_date" and not fields.get("deadline"):
+            raise ValueError("A goal with a target date needs a deadline")
+        if fields.get("kind") == "weekly":
+            fields["deadline"] = None
+        if fields.get("scope_kind") == "all":
+            fields["scope_value"] = None
+        if fields.get("scope_value") is not None:
+            fields["scope_value"] = str(fields["scope_value"])
+        return fields
+
+    def update_goal(self, goal_id: int, **fields):
+        current = self.get_goal(goal_id)
+        merged = self._clean_goal({**current, **fields})
+        fields = {k: merged[k] for k in fields if k in merged}
+        if "kind" in fields or "deadline" in fields:
+            fields["deadline"] = merged["deadline"]
+        with self.conn:
+            self.conn.execute(
+                f"UPDATE goals SET {', '.join(f'{c} = ?' for c in fields)} WHERE id = ?",
+                [*fields.values(), goal_id])
+
+    def get_goal(self, goal_id: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_goals(self, include_inactive: bool = False) -> list[dict]:
+        sql = "SELECT * FROM goals" + ("" if include_inactive else " WHERE active = 1")
+        return [dict(r) for r in self.conn.execute(sql + " ORDER BY kind DESC, id")]
+
+    def delete_goal(self, goal_id: int):
+        with self.conn:
+            self.conn.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
 
     def find_open_task(self, title: str) -> int | None:
         """Id of the open task with this title (case-insensitive, extra spaces ignored)."""
