@@ -7,8 +7,8 @@ its totals, a quick-add box, and the tasks grouped by project.
 
 from datetime import date, timedelta
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QPainter, QPen
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout,
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QAbstractButton, QFrame, QHBoxLayout, QInputDialo
 
 from pomodoro import lists
 from pomodoro.database import Database
-from pomodoro.models import CATEGORY_PALETTE, PRIORITIES, due_label, is_overdue
+from pomodoro.models import CATEGORY_PALETTE, ENERGY_SHORT, PRIORITIES, due_label, is_overdue
 from pomodoro.ui.project_picker import ProjectPicker
 from pomodoro.ui.task_dialog import TaskDialog
 
@@ -130,6 +130,10 @@ class TaskRow(QFrame):
                               f'<span style="color:{MUTED}">{task["project"]}</span>')
         if task.get("category"):
             meta_parts.append(f'<span style="color:{MUTED}">{task["category"]}</span>')
+        if task.get("energy_slot") and not done:
+            meta_parts.append(f'<span style="color:{MUTED}">{ENERGY_SHORT[task["energy_slot"]]}</span>')
+        if task.get("notion_url"):
+            meta_parts.append(f'<span style="color:{MUTED}">N↗</span>')
         if task.get("notes"):
             meta_parts.append(f'<span style="color:{MUTED}">✎</span>')
         meta = QLabel("&nbsp;&nbsp;".join(meta_parts), objectName="todoMeta")
@@ -630,6 +634,9 @@ class TodoTab(QWidget):
         if not done:
             menu.addAction("▶  Start pomodoro", lambda: self.start_requested.emit(task_id))
         menu.addAction("Edit…", lambda: self.edit_task(task_id))
+        if task["notion_url"]:
+            menu.addAction("Open in Notion ↗",
+                           lambda: QDesktopServices.openUrl(QUrl(task["notion_url"])))
         menu.addAction("Reopen" if done else "✓  Mark done", lambda: self._toggle_task(task_id))
         move = menu.addMenu("Move to project")
         move.addAction("No project", lambda: self._move(task_id, None))

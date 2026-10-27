@@ -7,12 +7,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QHeade
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from pomodoro.database import Database
-from pomodoro.models import (PRIORITIES, PRIORITY_COLORS, STATUSES, due_label,
+from pomodoro.models import (ENERGY_SHORT, PRIORITIES, PRIORITY_COLORS, STATUSES, due_label,
                              is_overdue, pomodoro_progress)
 from pomodoro.ui.task_dialog import TaskDialog
 
 COLUMNS = ["Task", "Category", "Type", "Priority", "Due", "🍅 Done / Est", "Score", "Status",
-           "Project"]
+           "Project", "Energy"]
 PROJECT_COLUMN = 8
 SCORE_COLUMN = 6
 AT_RISK_COLOR = "#DC6B19"
@@ -155,6 +155,7 @@ class TasksTab(QWidget):
             str(scored.score) if scored else "",
             STATUSES[task["status"]],
             task["project"] or "",
+            ENERGY_SHORT.get(task["energy_slot"], ""),
         ]
         for column, text in enumerate(cells):
             item = QTableWidgetItem(text)

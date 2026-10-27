@@ -54,6 +54,18 @@ class TaskDatabaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.create_task("x", colour="red")
 
+    def test_energy_slot_and_notion_link(self):
+        task_id = self.db.create_task("Concept note", energy_slot="deep",
+                                      notion_url="  https://app.notion.com/abc  ")
+        task = self.db.get_task(task_id)
+        self.assertEqual((task["energy_slot"], task["notion_url"]),
+                         ("deep", "https://app.notion.com/abc"))
+        self.db.update_task(task_id, energy_slot=None, notion_url="")
+        task = self.db.get_task(task_id)
+        self.assertEqual((task["energy_slot"], task["notion_url"]), (None, None))
+        with self.assertRaises(ValueError):
+            self.db.create_task("x", energy_slot="sleepy")
+
     def test_mark_done_sets_and_reopen_clears_completed_at(self):
         task_id = self.db.create_task("Write report")
         self.db.set_task_status(task_id, "done")

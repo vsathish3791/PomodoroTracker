@@ -17,6 +17,16 @@ STATUSES = {
     "done": "Done",
 }
 
+# When in the day a task suits you best (from your Notion Tasks Tracker).
+ENERGY_SLOTS = {
+    "deep": "High energy (Deep work)",
+    "create": "Post-learning clarity (Create)",
+    "network": "Moderate energy (Network)",
+    "plan": "Low energy (Plan/Close)",
+}
+ENERGY_SHORT = {"deep": "⚡ Deep work", "create": "✎ Create", "network": "☏ Network",
+                "plan": "☐ Plan/Close"}
+
 # The types a new database starts with (key, name). You can add, rename and
 # remove types in Settings; tasks store the key, so renaming never breaks them.
 DEFAULT_TYPES = [("coding", "Coding"), ("non-coding", "Non-coding")]

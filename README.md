@@ -25,13 +25,22 @@ Run the tests:
 ```
 
 - `dist\PomodoroTracker\PomodoroTracker.exe` - the app, runnable without Python.
-- `installer_output\PomodoroTracker-Setup-1.2.0.exe` - the installer, built only if
+- `installer_output\PomodoroTracker-Setup-1.2.1.exe` - the installer, built only if
   [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed
   (`winget install JRSoftware.InnoSetup`). It installs for your user only (no admin),
   adds Start menu and optional desktop shortcuts, can start the app when you sign in,
   and has an uninstaller. Your data in `%APPDATA%\PomodoroTracker` is kept on uninstall.
 
 ## What works now
+
+### Energy slots and Notion links (v1.2.1)
+
+- **Energy slot** on each task: *High energy (Deep work) · Post-learning clarity (Create) ·
+  Moderate energy (Network) · Low energy (Plan/Close)*, shown in the To-Do rows, the
+  Timer's task line and the Tasks table.
+- **Notion link** on each task: paste a Notion page link in the task form; open it with
+  **Open**, or right-click a To-Do row → **Open in Notion**. Background notes stay in Notion.
+- The app is the single task list; Notion keeps knowledge and reflection.
 
 ### Your own categories and types (v1.2)
 

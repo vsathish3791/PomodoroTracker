@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 from pomodoro import __version__
 from pomodoro.database import Database
 from pomodoro.hotkey import GlobalHotkey
-from pomodoro.models import PRIORITIES, due_label, pomodoro_progress
+from pomodoro.models import ENERGY_SHORT, PRIORITIES, due_label, pomodoro_progress
 from pomodoro.priority import ScoredTask, ScoreWeights, day_summary, rank_tasks, should_warn
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
 from pomodoro.ui.main_window import MainWindow
@@ -489,6 +489,8 @@ class PomodoroApp:
         parts = [PRIORITIES[task["priority"]]]
         if task["project"]:
             parts.append(task["project"])
+        if task["energy_slot"]:
+            parts.append(ENERGY_SHORT[task["energy_slot"]])
         if task["category"]:
             parts.append(task["category"])
         if task["due_date"]:

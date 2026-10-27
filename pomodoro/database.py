@@ -16,8 +16,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from pomodoro.models import (CATEGORY_PALETTE, DEFAULT_CATEGORIES, DEFAULT_PRIORITY,
-                             DEFAULT_TYPES, EXTRA_CATEGORY_COLOR, OLD_DEFAULT_COLORS,
-                             PRIORITIES, STATUSES)
+                             DEFAULT_TYPES, ENERGY_SLOTS, EXTRA_CATEGORY_COLOR,
+                             OLD_DEFAULT_COLORS, PRIORITIES, STATUSES)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -132,6 +132,10 @@ class Database:
             if "project_id" not in columns:   # projects were added in v1.1
                 self.conn.execute(
                     "ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+            if "energy_slot" not in columns:  # v1.2.1
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN energy_slot TEXT")
+            if "notion_url" not in columns:   # v1.2.1: link to the task's Notion page
+                self.conn.execute("ALTER TABLE tasks ADD COLUMN notion_url TEXT")
         self._allow_any_task_type()          # editable types were added in v1.2
         category_columns = {row["name"] for row in
                             self.conn.execute("PRAGMA table_info(categories)")}
@@ -446,7 +450,7 @@ class Database:
 
     # Columns that create_task/update_task are allowed to set.
     TASK_FIELDS = ("title", "category_id", "project_id", "type", "priority", "due_date",
-                   "estimate_pomodoros", "status", "notes")
+                   "estimate_pomodoros", "status", "notes", "energy_slot", "notion_url")
 
     def _clean_task_fields(self, fields: dict) -> dict:
         unknown = set(fields) - set(self.TASK_FIELDS)
@@ -463,6 +467,10 @@ class Database:
             raise ValueError(f"Status must be one of {list(STATUSES)}")
         if "type" in fields and fields["type"] not in self.type_names():
             raise ValueError(f"Type must be one of {list(self.type_names())}")
+        if fields.get("energy_slot") not in (None, *ENERGY_SLOTS):
+            raise ValueError(f"Energy slot must be one of {list(ENERGY_SLOTS)}")
+        if "notion_url" in fields:
+            fields["notion_url"] = (fields["notion_url"] or "").strip() or None
         if fields.get("estimate_pomodoros") == 0:
             fields["estimate_pomodoros"] = None   # 0 means "no estimate"
         return fields

@@ -2,13 +2,14 @@
 
 from datetime import date
 
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
                                QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QPlainTextEdit, QSpinBox, QVBoxLayout)
+                               QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout)
 
 from pomodoro.database import Database
-from pomodoro.models import DEFAULT_PRIORITY, PRIORITIES, STATUSES
+from pomodoro.models import DEFAULT_PRIORITY, ENERGY_SLOTS, PRIORITIES, STATUSES
 from pomodoro.ui.project_picker import ProjectPicker
 
 
@@ -42,6 +43,23 @@ class TaskDialog(QDialog):
         for key, label in PRIORITIES.items():
             self.priority_input.addItem(label, key)
 
+        self.energy_input = QComboBox()
+        self.energy_input.addItem("Any time", None)
+        for key, label in ENERGY_SLOTS.items():
+            self.energy_input.addItem(label, key)
+
+        # Optional link to a Notion page with the background (notes stay in Notion).
+        self.notion_input = QLineEdit(placeholderText="Paste a Notion page link (optional)")
+        self.notion_open = QPushButton("Open")
+        self.notion_open.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(self.notion_input.text().strip())))
+        self.notion_input.textChanged.connect(
+            lambda text: self.notion_open.setEnabled(text.strip().startswith("http")))
+        self.notion_open.setEnabled(False)
+        notion_row = QHBoxLayout()
+        notion_row.addWidget(self.notion_input, 1)
+        notion_row.addWidget(self.notion_open)
+
         self.has_due = QCheckBox("Due")
         self.due_input = QDateEdit(calendarPopup=True, displayFormat="ddd dd MMM yyyy")
         self.due_input.setDate(QDate.currentDate())
@@ -66,10 +84,12 @@ class TaskDialog(QDialog):
         form.addRow("Category", self.category_input)
         form.addRow("Type", self.type_input)
         form.addRow("Priority", self.priority_input)
+        form.addRow("Energy slot", self.energy_input)
         form.addRow("Due date", due_row)
         form.addRow("Estimate", self.estimate_input)
         form.addRow("Status", self.status_input)
         form.addRow("Notes", self.notes_input)
+        form.addRow("Notion", notion_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
@@ -97,6 +117,8 @@ class TaskDialog(QDialog):
         self.project_input.set_project_id(task["project_id"])
         self.type_input.setCurrentIndex(self.type_input.findData(task["type"]))
         self.priority_input.setCurrentIndex(self.priority_input.findData(task["priority"]))
+        self.energy_input.setCurrentIndex(max(self.energy_input.findData(task["energy_slot"]), 0))
+        self.notion_input.setText(task["notion_url"] or "")
         self.has_due.setChecked(bool(task["due_date"]))
         self.due_input.setEnabled(bool(task["due_date"]))
         if task["due_date"]:
@@ -116,6 +138,8 @@ class TaskDialog(QDialog):
             "project_id": self.project_input.project_id(),
             "type": self.type_input.currentData(),
             "priority": self.priority_input.currentData(),
+            "energy_slot": self.energy_input.currentData(),
+            "notion_url": self.notion_input.text(),
             "due_date": due,
             "estimate_pomodoros": self.estimate_input.value() or None,
             "status": self.status_input.currentData(),
