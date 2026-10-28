@@ -235,5 +235,43 @@ class StatusUpgradeTests(unittest.TestCase):
         db.close()
 
 
+class ScheduleChangeTests(unittest.TestCase):
+    """Changing the repeat days moves the open occurrence instead of leaving it overdue."""
+
+    def setUp(self):
+        self.db = Database(":memory:")
+        self.rec = self.db.create_recurrence(
+            "Applications", frequency="weekly", weekdays="1",          # Tuesdays
+            start_date=day(1).isoformat(), end_date=day(60).isoformat())
+        backdate(self.db)
+        self.db.generate_occurrences(today=day(1), working_days=WEEKDAYS)
+
+    def tearDown(self):
+        self.db.close()
+
+    def open_dates(self):
+        return [tuple(r) for r in self.db.conn.execute(
+            "SELECT occurrence_date, due_date FROM tasks WHERE recurrence_id = ? "
+            "AND status NOT IN ('done', 'missed')", (self.rec,))]
+
+    def test_weekly_day_change_moves_open_occurrence(self):
+        self.db.update_recurrence(self.rec, weekdays="4")                # now Fridays
+        self.assertEqual(self.open_dates(), [(day(4).isoformat(),) * 2])
+        # Friday itself creates nothing new and marks nothing missed
+        self.assertEqual(self.db.generate_occurrences(today=day(4), working_days=WEEKDAYS), 0)
+        self.assertEqual(self.open_dates(), [(day(4).isoformat(),) * 2])
+
+    def test_monthly_change_moves_to_the_month_day(self):
+        self.db.update_recurrence(self.rec, frequency="monthly", month_day=30,
+                                  start_date=day(4).isoformat())
+        self.assertEqual(self.open_dates(), [(day(4).isoformat(),) * 2])   # Fri 30 Oct
+
+    def test_occurrence_that_still_fits_stays(self):
+        self.db.update_recurrence(self.rec, weekdays="1,4")              # Tue and Fri
+        self.assertEqual(self.open_dates(), [(day(1).isoformat(),) * 2])
+        self.db.update_recurrence(self.rec, title="Send applications")   # not a schedule change
+        self.assertEqual(self.open_dates(), [(day(1).isoformat(),) * 2])
+
+
 if __name__ == "__main__":
     unittest.main()

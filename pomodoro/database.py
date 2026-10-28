@@ -755,7 +755,8 @@ class Database:
         return dict(row) if row else None
 
     def update_recurrence(self, recurrence_id: int, **fields):
-        """Change the series. Future occurrences use the new template and schedule."""
+        """Change the series. Future occurrences use the new template and schedule; the
+        open occurrence moves to the next day that fits a changed schedule."""
         current = self.get_recurrence(recurrence_id)
         fields = self._clean_recurrence(fields, current)
         if not fields:
@@ -764,6 +765,35 @@ class Database:
             self.conn.execute(
                 f"UPDATE recurrences SET {', '.join(f'{c} = ?' for c in fields)} WHERE id = ?",
                 [*fields.values(), recurrence_id])
+        if fields.keys() & {"frequency", "start_date", "end_date", "workdays_only", "weekdays",
+                            "month_day"}:
+            self.move_open_occurrence(recurrence_id)
+
+    def move_open_occurrence(self, recurrence_id: int):
+        """Move the open occurrence to the next day that fits the series' schedule.
+
+        Without this, an occurrence made under an old rule (e.g. on a Tuesday when the
+        series now repeats on Fridays) shows as overdue and later counts as Missed.
+        """
+        schedule = schedule_from_row(self.get_recurrence(recurrence_id))
+        working_days = self.get_working_days()
+        for task_id, day in self.conn.execute(
+                "SELECT id, occurrence_date FROM tasks WHERE recurrence_id = ? "
+                "AND status NOT IN ('done', 'missed')", (recurrence_id,)).fetchall():
+            current = date.fromisoformat(day)
+            if schedule.dates(current, current, working_days):
+                continue                                    # still fits the schedule
+            taken = {r[0] for r in self.conn.execute(
+                "SELECT occurrence_date FROM tasks WHERE recurrence_id = ? AND id != ?",
+                (recurrence_id, task_id))}
+            upcoming = [d for d in schedule.dates(current, schedule.end, working_days)
+                        if d.isoformat() not in taken]
+            if not upcoming:
+                continue                                    # nothing left in the series
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE tasks SET occurrence_date = ?, due_date = ? WHERE id = ?",
+                    (upcoming[0].isoformat(), upcoming[0].isoformat(), task_id))
 
     def stop_recurrence(self, recurrence_id: int):
         """Stop repeating. The current occurrence (if any) and the history are kept."""
