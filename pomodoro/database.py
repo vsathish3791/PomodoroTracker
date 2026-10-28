@@ -641,6 +641,7 @@ class Database:
         SELECT t.*, c.name AS category, c.color AS category_color,
                p.name AS project, p.color AS project_color,
                r.cue_time, r.cue_place, r.two_minute, r.remind, r.stack_after_id,
+               r.frequency,
                (SELECT prev.status FROM tasks prev
                  WHERE prev.recurrence_id = t.recurrence_id
                    AND prev.occurrence_date < t.occurrence_date
@@ -1099,14 +1100,19 @@ class Database:
             )
         return task_id
 
-    def recent_open_tasks(self, limit: int = 15) -> list[str]:
-        """Titles of tasks not yet done, most recently worked on first."""
+    def recent_open_tasks(self, limit: int = 15, project_id: object = "all") -> list[str]:
+        """Titles of tasks not yet done, most recently worked on first.
+
+        project_id: "all", a project's id, or None for tasks without a project."""
+        where, params = "t.status NOT IN ('done', 'missed')", []
+        if project_id != "all":
+            where += " AND t.project_id IS ?"
+            params.append(project_id)
         rows = self.conn.execute(
             "SELECT t.title, MAX(COALESCE(s.start_time, t.created_at)) AS last_used "
-            "FROM tasks t LEFT JOIN sessions s ON s.task_id = t.id "
-            "WHERE t.status NOT IN ('done', 'missed') GROUP BY t.id "
-            "ORDER BY last_used DESC LIMIT ?",
-            (limit,),
+            f"FROM tasks t LEFT JOIN sessions s ON s.task_id = t.id WHERE {where} "
+            "GROUP BY t.id ORDER BY last_used DESC LIMIT ?",
+            (*params, limit),
         ).fetchall()
         return [row["title"] for row in rows]
 

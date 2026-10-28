@@ -1,4 +1,5 @@
-"""'Focus Next' panel: the top 3 tasks to work on, each with a Start button."""
+"""'Focus Next' panel: the top 3 tasks for today (today's focus, daily, scheduled today,
+due today, overdue), each with a Start button."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -40,7 +41,8 @@ class FocusNextPanel(QFrame):
         self._buttons = []
 
         if not ranked:
-            self.rows.addWidget(QLabel("No open tasks. Add some in the Tasks tab.",
+            self.rows.addWidget(QLabel("Nothing planned or due today. Use Today → ☀ Plan my day, "
+                                       "or pick any task above.",
                                        objectName="reason"))
             return
         for number, scored in enumerate(ranked[:3], start=1):

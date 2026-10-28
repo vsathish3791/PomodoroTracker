@@ -13,6 +13,17 @@ Every open task gets a Focus Score:
 still needed up to that date fit into your daily goal on the working days
 left. Tasks without an estimate can't be checked, so they never count as at risk.
 
+Focus Next takes tasks in groups first, and the Focus Score orders tasks within a group:
+
+    1. Today's focus  - tasks you picked in "Plan my day" for today
+    2. Daily          - daily repeating tasks for today
+    3. Scheduled      - weekly / monthly repeating tasks whose day is today
+    4. Due today      - one-off tasks due today
+    5. Overdue        - one-off tasks past their due date
+
+Everything else (later deadlines, a weekly task whose day has passed) stays out of
+Focus Next but is still ranked after these groups.
+
 This module is plain Python (no Qt, no database) so it is easy to test.
 """
 
@@ -70,6 +81,27 @@ def urgency_weight(due: date | None, today: date, weights: ScoreWeights = DEFAUL
     return 0
 
 
+FOCUS_GROUPS = {1: "Today's focus", 2: "Daily", 3: "Scheduled today", 4: "Due today",
+                5: "Overdue"}
+OTHER = 9                          # not in Focus Next
+
+
+def focus_group(task: dict, today: date) -> int:
+    """Which Focus Next group a task belongs to (see the module notes); OTHER if none."""
+    if task.get("planned_date") == today.isoformat():
+        return 1
+    due = _due_date(task)
+    if task.get("recurrence_id"):
+        if due != today:
+            return OTHER                 # a repeating task counts only on its own day
+        return 2 if task.get("frequency") == "daily" else 3
+    if due == today:
+        return 4
+    if due is not None and due < today:
+        return 5
+    return OTHER
+
+
 @dataclass
 class ScoredTask:
     task: dict
@@ -77,6 +109,17 @@ class ScoredTask:
     remaining: int | None          # pomodoros still to do (None = no estimate)
     at_risk: bool = False
     reasons: list[str] = field(default_factory=list)
+    group: int = OTHER             # Focus Next group (FOCUS_GROUPS), OTHER if not in it
+
+    @property
+    def in_focus_next(self) -> bool:
+        return self.group != OTHER
+
+    def sort_key(self):
+        return (self.group, -self.score,
+                self.due or date.max,                                   # earlier deadline
+                self.remaining if self.remaining is not None else 10**6,  # quicker to finish
+                self.id)
 
     @property
     def id(self) -> int:
@@ -91,10 +134,10 @@ class ScoredTask:
         return _due_date(self.task)
 
     def is_urgent(self, today: date) -> bool:
-        """Urgent enough to interrupt you about: overdue, due today, P1, at risk, or a
-        recurring task missed last time (never miss twice)."""
+        """Urgent enough to interrupt you about: in today's focus, overdue, due today, P1,
+        at risk, or a recurring task missed last time (never miss twice)."""
         due = self.due
-        return (self.task["priority"] == 1 or self.at_risk
+        return (self.group == 1 or self.task["priority"] == 1 or self.at_risk
                 or (due is not None and due <= today)
                 or (bool(self.task.get("recurrence_id"))
                     and self.task.get("previous_status") == "missed"))
@@ -153,7 +196,8 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
                weights: ScoreWeights = DEFAULT_WEIGHTS,
                reserved: list[dict] | None = None,
                energy_now: str | None = None) -> list[ScoredTask]:
-    """Score and sort tasks, best next task first. Done and On Hold tasks are left out.
+    """Score and sort tasks, best next task first: Focus Next groups first, then the rest.
+    Done and On Hold tasks are left out.
 
     `tasks` are dicts as returned by Database.list_tasks (with a 'pomodoros' total).
     """
@@ -178,7 +222,9 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
                  + (weights.never_miss_twice if missed_last else 0)
                  + (weights.energy_match if energy_fit else 0))
 
-        reasons = [PRIORITIES[task["priority"]]]
+        group = focus_group(task, today)
+        reasons = ["in today's focus"] if group == 1 else []
+        reasons.append(PRIORITIES[task["priority"]])
         if due is not None:
             label = due_label(task["due_date"], today)
             reasons.append(label.lower() if label.startswith("Overdue")
@@ -193,14 +239,9 @@ def rank_tasks(tasks: list[dict], today: date | None = None, daily_goal: int = 8
         if energy_fit:
             reasons.append("fits your peak focus hours" if energy_now == "deep"
                            else "fits your low-energy hour")
-        scored.append(ScoredTask(task, score, remaining, at_risk, reasons))
+        scored.append(ScoredTask(task, score, remaining, at_risk, reasons, group))
 
-    scored.sort(key=lambda s: (
-        -s.score,
-        s.due or date.max,                                   # earlier deadline first
-        s.remaining if s.remaining is not None else 10**6,   # then quicker to finish
-        s.id,
-    ))
+    scored.sort(key=ScoredTask.sort_key)
     return scored
 
 
@@ -208,33 +249,36 @@ def should_warn(chosen_id: int | None, ranked: list[ScoredTask], today: date | N
                 weights: ScoreWeights = DEFAULT_WEIGHTS) -> ScoredTask | None:
     """The task to warn about if you're starting something less important, else None.
 
-    Warns only when the top task is urgent and scores higher than the chosen one.
-    chosen_id is None for a brand-new task, which will get the default priority.
+    Warns only when the top task is urgent and comes before the chosen one in Focus Next
+    order. chosen_id is None for a brand-new task, which will get the default priority.
     """
     today = today or date.today()
     if not ranked or ranked[0].id == chosen_id:
         return None
     top = ranked[0]
     chosen = next((s for s in ranked if s.id == chosen_id), None)
-    chosen_score = chosen.score if chosen else weights.priority(DEFAULT_PRIORITY)
-    if top.is_urgent(today) and top.score > chosen_score:
+    chosen_key = (chosen.group, -chosen.score) if chosen else         (OTHER, -weights.priority(DEFAULT_PRIORITY))
+    if top.is_urgent(today) and (top.group, -top.score) < chosen_key:
         return top
     return None
 
 
 def day_summary(ranked: list[ScoredTask], today: date, daily_goal: int, done_today: int) -> str:
-    """One line, e.g. '2 overdue · 3 due today · 1 at risk · 9 🍅 needed today, 6 left in goal'."""
-    overdue = [s for s in ranked if s.due and s.due < today]
-    due_today = [s for s in ranked if s.due == today]
+    """One line, e.g. '1 in focus · 3 due today · 1 overdue · 9 🍅 needed today, 6 left'.
+
+    Counts only what Focus Next shows (plus at-risk deadlines)."""
+    planned = [s for s in ranked if s.group == 1]
+    overdue = [s for s in ranked if s.group == 5]
+    due_today = [s for s in ranked if s.group in (2, 3, 4)]
     at_risk = [s for s in ranked if s.at_risk]
-    parts = []
+    parts = [f"{len(planned)} in today's focus"] if planned else []
     if overdue:
         parts.append(f"{len(overdue)} overdue")
     if due_today:
         parts.append(f"{len(due_today)} due today")
     if at_risk:
         parts.append(f"{len(at_risk)} at risk")
-    needed = sum(s.remaining or 0 for s in overdue + due_today)
+    needed = sum(s.remaining or 0 for s in planned + overdue + due_today)
     if needed:
         left = max(daily_goal - done_today, 0)
         parts.append(f"{needed} 🍅 needed today, {left} left in your goal")

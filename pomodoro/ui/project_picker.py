@@ -1,4 +1,6 @@
-"""A drop-down for choosing a task's project, with "+ New project…" at the bottom."""
+"""A drop-down for choosing a task's project, with "+ New project…" at the bottom.
+
+With `all_label` it also offers "All projects" first, for use as a filter (the Timer)."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -7,6 +9,7 @@ from PySide6.QtWidgets import QComboBox, QInputDialog, QMessageBox
 from pomodoro.database import Database
 
 NEW_PROJECT = "new"
+ALL_PROJECTS = "all"
 
 
 def color_dot(color: str) -> QIcon:
@@ -25,11 +28,12 @@ class ProjectPicker(QComboBox):
     project_created = Signal(int)
     project_chosen = Signal(object)     # project id or None, when the user picks one
 
-    def __init__(self, db: Database, parent=None):
+    def __init__(self, db: Database, parent=None, all_label: str | None = None):
         super().__init__(parent, objectName="projectPicker")
         self.db = db
-        self._current: int | None = None
-        self.setToolTip("Project for this task")
+        self.all_label = all_label
+        self._current: int | str | None = ALL_PROJECTS if all_label else None
+        self.setToolTip("Show the tasks of this project" if all_label else "Project for this task")
         self.setMinimumContentsLength(12)
         self.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.activated.connect(self._on_activated)
@@ -39,6 +43,8 @@ class ProjectPicker(QComboBox):
         """Refill the list (e.g. after projects were added or renamed), keeping the choice."""
         self.blockSignals(True)
         self.clear()
+        if self.all_label:
+            self.addItem(self.all_label, ALL_PROJECTS)
         self.addItem(color_dot("#C9CAD1"), "No project", None)
         for project in self.db.list_projects():
             self.addItem(color_dot(project["color"]), project["name"], project["id"])
@@ -47,12 +53,16 @@ class ProjectPicker(QComboBox):
         self.blockSignals(False)
         self.set_project_id(self._current)
 
-    def project_id(self) -> int | None:
+    def project_id(self) -> int | str | None:
+        """The chosen project's id, None for "No project", or ALL_PROJECTS."""
         return self._current
 
-    def set_project_id(self, project_id: int | None):
+    def set_project_id(self, project_id: int | str | None):
         index = self.findData(project_id)
-        self._current = project_id if index >= 0 else None
+        if index < 0:                    # e.g. a deleted project
+            project_id = ALL_PROJECTS if self.all_label else None
+            index = self.findData(project_id)
+        self._current = project_id
         self.blockSignals(True)
         self.setCurrentIndex(max(index, 0))
         self.blockSignals(False)

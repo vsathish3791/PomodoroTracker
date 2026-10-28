@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 from pomodoro.database import Database
 from pomodoro.hotkey import MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, parse_shortcut
@@ -49,16 +50,18 @@ class ScoreWeightTests(unittest.TestCase):
         self.assertEqual(ScoreWeights.from_dict({}), DEFAULT_WEIGHTS)
 
     def test_custom_weights_change_the_ranking(self):
+        # Both are outside the Focus Next groups, so only the Focus Score orders them.
         tasks = [
             {"id": 1, "title": "P1 no date", "priority": 1, "due_date": None,
              "estimate_pomodoros": None, "pomodoros": 0, "status": "todo"},
-            {"id": 2, "title": "P4 overdue", "priority": 4, "due_date": "2020-01-01",
+            {"id": 2, "title": "P4 due tomorrow", "priority": 4, "due_date": "2020-01-02",
              "estimate_pomodoros": None, "pomodoros": 0, "status": "todo"},
         ]
-        default_top = rank_tasks(tasks)[0].title                     # 50 > 40
-        priority_first = ScoreWeights(p1=100)
-        self.assertEqual(default_top, "P4 overdue")
-        self.assertEqual(rank_tasks(tasks, weights=priority_first)[0].title, "P1 no date")
+        today = date(2020, 1, 1)
+        self.assertEqual(rank_tasks(tasks, today)[0].title, "P1 no date")       # 40 > 30
+        deadlines_first = ScoreWeights(p1=10)
+        self.assertEqual(rank_tasks(tasks, today, weights=deadlines_first)[0].title,
+                         "P4 due tomorrow")
 
     def test_weights_saved_in_settings(self):
         db = Database(":memory:")

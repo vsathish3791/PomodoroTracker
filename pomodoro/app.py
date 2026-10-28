@@ -21,7 +21,7 @@ from pomodoro.recurrence import due_reminders
 from pomodoro.timer import Phase, PhaseRecord, PomodoroTimer, TimerSettings
 from pomodoro.ui.main_window import MainWindow
 from pomodoro.ui.mini_window import MiniWindow
-from pomodoro.ui.project_picker import ProjectPicker
+from pomodoro.ui.project_picker import ALL_PROJECTS, ProjectPicker
 from pomodoro.ui.settings_dialog import SettingsDialog
 from pomodoro.ui.deadlines_tab import DeadlinesTab
 from pomodoro.ui.containers import SwitchPanel
@@ -74,14 +74,14 @@ class PomodoroApp:
         self.window.close_requested.connect(self._on_close_requested)
         self.window.mark_done_button.clicked.connect(self.mark_current_task_done)
         self.window.task_input.currentTextChanged.connect(self._refresh_task_info)
-        self.window.set_task_choices(self.db.recent_open_tasks())
         self.window.focus_next.start_requested.connect(self.start_task)
 
-        # Project for the task in the Timer's task box
-        self.timer_project = ProjectPicker(db)
+        # Project filter for the Timer's task box (a new task is created in it)
+        self.timer_project = ProjectPicker(db, all_label="All projects")
         self.timer_project.project_chosen.connect(self._on_timer_project_chosen)
         self.timer_project.project_created.connect(lambda _: self._on_tasks_changed())
         self.window.task_row.addWidget(self.timer_project)
+        self.window.set_task_choices(self._task_choices())
 
         def score_order():
             return {s.id: n for n, s in enumerate(self.rank())}
@@ -302,6 +302,9 @@ class PomodoroApp:
         if self._focus_in_progress() or self.window.task_name():
             return
         ranked = self.rank()
+        project = self.timer_project.project_id()
+        if project != ALL_PROJECTS:
+            ranked = [s for s in ranked if s.task["project_id"] == project]
         if ranked:
             self.window.set_task_name(ranked[0].title)
 
@@ -393,7 +396,7 @@ class PomodoroApp:
                     override_of = top.id
                     self._dismissed_warnings.add((date.today(), name.lower(), top.id))
 
-            project_id = self.timer_project.project_id()
+            project_id = self._new_task_project()
             is_new = self.db.find_open_task(name) is None
             self.focus_task_id = self.db.get_or_create_task(name, project_id)
             self.focus_task_name = self.db.get_task(self.focus_task_id)["title"]
@@ -401,7 +404,7 @@ class PomodoroApp:
                 self.db.set_last_project_id(project_id)
             if override_of is not None:
                 self.db.add_override(self.focus_task_id, override_of)
-            self.window.set_task_choices(self.db.recent_open_tasks())
+            self.window.set_task_choices(self._task_choices())
             self.tasks_tab.refresh()
         t.start()
         self._refresh_task_info()
@@ -559,22 +562,34 @@ class PomodoroApp:
             return self.focus_task_id
         return self.db.find_open_task(self.window.task_name())
 
-    def _on_timer_project_chosen(self, project_id: int | None):
-        """Picking a project in the Timer: moves an existing task, or sets it for a new one."""
-        self.db.set_last_project_id(project_id)
-        task_id = self._current_task_id()
-        if task_id is not None:
-            self.db.update_task(task_id, project_id=project_id)
-            self._on_tasks_changed()
-            self.tasks_tab.refresh()
+    def _task_choices(self) -> list[str]:
+        """Open tasks for the task box: all, or only the chosen project's."""
+        project = self.timer_project.project_id()
+        return self.db.recent_open_tasks(15 if project == ALL_PROJECTS else 100, project)
+
+    def _new_task_project(self) -> int | None:
+        """A task typed in the Timer goes into the filtered project (or the last one used)."""
+        project = self.timer_project.project_id()
+        return self.db.last_project_id() if project == ALL_PROJECTS else project
+
+    def _on_timer_project_chosen(self, project_id):
+        """Picking a project in the Timer filters the task list; it never moves a task.
+        (Move tasks in To-Do: right-click -> Move to project.)"""
+        if project_id != ALL_PROJECTS:
+            self.db.set_last_project_id(project_id)
+        self.window.set_task_choices(self._task_choices())
+        if not self._focus_in_progress():
+            task_id = self.db.find_open_task(self.window.task_name())
+            task = self.db.get_task(task_id) if task_id is not None else None
+            if task and project_id != ALL_PROJECTS and task["project_id"] != project_id:
+                self.window.set_task_name("")        # not in this project
+                self._prefill_top_task()
+        self._refresh_task_info()
 
     def _refresh_task_info(self):
         """The line under the task box: priority, category, due date and progress."""
         task_id = self._current_task_id()
         task = self.db.get_task(task_id) if task_id is not None else None
-        # Existing task: show its project. New task: the project you used last.
-        self.timer_project.set_project_id(task["project_id"] if task
-                                          else self.db.last_project_id())
         if task is None:
             text = ("New task - it's created in the chosen project when you start."
                     if self.window.task_name() else "")
@@ -614,7 +629,9 @@ class PomodoroApp:
 
     def _refresh_focus_next(self):
         ranked = self.rank()
-        self.window.focus_next.show_tasks(ranked, self._summary(ranked))
+        # Focus Next: today's focus, daily, scheduled today, due today, overdue
+        shown = [s for s in ranked if s.in_focus_next]
+        self.window.focus_next.show_tasks(shown, self._summary(ranked))
         self.window.focus_next.set_start_enabled(not self._focus_in_progress())
         self.window.fit_timer_page()
         self._refresh_open_tab()
@@ -622,7 +639,7 @@ class PomodoroApp:
     def _on_tasks_changed(self):
         self.timer_project.reload()
         self.tasks_tab._reload_categories()   # also refreshes the project filter
-        self.window.set_task_choices(self.db.recent_open_tasks())
+        self.window.set_task_choices(self._task_choices())
         if self.timer.phase == Phase.FOCUS and self.timer.started:
             task = self.db.get_task(self.focus_task_id)
             if task:

@@ -19,8 +19,10 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
 
 1. **Morning – Today → ☀ Plan my day…** Tick the few tasks you'll focus on. The app shows
    whether they fit your daily goal after routines and habits.
-2. **Work – Timer.** Start a pomodoro on the suggested task (**Focus Next** shows the best
-   next tasks). Stopped early? Pick a reason in one click. Distracted? Click
+2. **Work – Timer.** Start a pomodoro on the suggested task. **Focus Next** shows, in
+   this order: your *Today's focus*, daily tasks, weekly/monthly tasks whose day is today,
+   one-off tasks due today, then overdue one-off tasks. The project box next to the task
+   filters the task list (it never moves a task – do that in To-Do). Stopped early? Pick a reason in one click. Distracted? Click
    **⚡ I got distracted** – the timer keeps going.
 3. **Evening – Today → ☾ Close the day…** See today's numbers, move unfinished tasks to
    tomorrow, plan tomorrow, and **Send to Notion Journal** (or **Copy**) – the numbers for
