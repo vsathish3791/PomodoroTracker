@@ -10,7 +10,8 @@ from pomodoro import planning
 from pomodoro.database import Database
 from pomodoro.notion import NotionError, parse_id
 from pomodoro.ui.clipboard import copy_text
-from pomodoro.ui.notion_ui import is_connected, notion_client, run_in_background
+from pomodoro.ui.notion_ui import (is_connected, notion_client, notion_enabled,
+                                   run_in_background)
 
 
 class ReviewTab(QWidget):
@@ -19,9 +20,8 @@ class ReviewTab(QWidget):
         self.db = db
         self.week_input = QComboBox()
         self.week_input.currentIndexChanged.connect(lambda _: self.refresh_report())
-        copy = QPushButton("Copy for Notion")
-        copy.setToolTip("Copies the report as Markdown - paste it into a Notion page.")
-        copy.clicked.connect(self._copy)
+        self.copy = QPushButton()
+        self.copy.clicked.connect(self._copy)
         self.send = QPushButton("Send to Notion")
         self.send.setToolTip("Creates a page for this week under your weekly-reviews page "
                              "(Settings -> Notion).")
@@ -36,7 +36,7 @@ class ReviewTab(QWidget):
         top.addStretch()
         top.addWidget(self.status)
         top.addWidget(self.send)
-        top.addWidget(copy)
+        top.addWidget(self.copy)
         top.addWidget(save)
 
         self.view = QTextBrowser(objectName="reviewView")
@@ -44,9 +44,8 @@ class ReviewTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.addLayout(top)
-        layout.addWidget(QLabel("Three generations: what was planned · what was done and its "
-                                "results · problems and next actions. Reflect on it in your "
-                                "Notion weekly review.", objectName="cardNote", wordWrap=True))
+        self.note = QLabel(objectName="cardNote", wordWrap=True)
+        layout.addWidget(self.note)
         layout.addWidget(self.view, 1)
         self.report = None
 
@@ -72,6 +71,13 @@ class ReviewTab(QWidget):
         self.view.setMarkdown(self.report.markdown())
         self.status.setText("")
         self.send.setVisible(is_connected(self.db) and bool(self.db.get_setting("notion_weekly_url")))
+        use_notion = notion_enabled(self.db)
+        self.copy.setText("Copy for Notion" if use_notion else "Copy")
+        self.copy.setToolTip("Copies the report as Markdown – paste it into "
+                             + ("a Notion page." if use_notion else "your notes or a document."))
+        self.note.setText("Three generations: what was planned · what was done and its results "
+                          "· problems and next actions. Reflect on it in your "
+                          + ("Notion weekly review." if use_notion else "weekly review."))
 
     def _send(self):
         if not self.report:
@@ -103,7 +109,8 @@ class ReviewTab(QWidget):
     def _copy(self):
         if self.report:
             if copy_text(self, self.report.markdown()):
-                self.status.setText("Copied – paste into Notion.")
+                self.status.setText("Copied – paste into Notion." if notion_enabled(self.db)
+                                    else "Copied.")
 
     def _save(self):
         if not self.report:

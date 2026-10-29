@@ -1,7 +1,8 @@
 # Pomodoro Tracker – quick guide
 
 Plan your day, focus in 25-minute **pomodoros**, and see where your effort goes.
-The app is for **planning and execution**; keep notes, learnings and reflections in Notion.
+The app is for **planning and execution**; keep notes, learnings and reflections in your
+journal. Everything works on its own – **Notion is optional** (⚙ Settings → Notion).
 
 ## The tabs
 
@@ -25,10 +26,10 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
    filters the task list (it never moves a task – do that in To-Do). Stopped early? Pick a reason in one click. Distracted? Click
    **⚡ I got distracted** – the timer keeps going.
 3. **Evening – Today → ☾ Close the day…** See today's numbers, move unfinished tasks to
-   tomorrow, plan tomorrow, and **Send to Notion Journal** (or **Copy**) – the numbers for
-   "What happened?"; the reflection itself goes in Notion.
+   tomorrow, plan tomorrow, and **Copy day summary** for your journal (with Notion on:
+   **Send to Notion Journal**).
 4. **Weekly – Reports → Weekly review.** Planned → Done & results → Problems & next
-   actions. **Send to Notion**, **Copy for Notion** or **Save as…**.
+   actions. **Copy** or **Save as…** (with Notion on: **Send to Notion**).
 
 ## Tasks
 
@@ -79,7 +80,8 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
 - **⚙ Settings**: timer lengths, daily goal, working days, categories & types, Focus Score
   points, and the global **Start/Pause shortcut** (default **Ctrl+Alt+P**, works from any
   app).
-- **⚙ Settings -> Notion** (optional): connect once so the Send buttons work. Create an
+- **⚙ Settings -> Notion** (optional, off for new users): tick **Use Notion**, then connect
+  once so the Send buttons work. Create an
   internal integration at notion.so/profile/integrations, paste its secret, add the
   integration to your Journal database and weekly-reviews page (••• -> Connections),
   paste their links and press **Test**. The app only sends numbers; it never changes

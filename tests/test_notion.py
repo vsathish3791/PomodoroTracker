@@ -90,5 +90,38 @@ class NotionTests(unittest.TestCase):
         self.assertEqual(unprotect(stored), "secret_abc")
 
 
+class NotionOptionalTests(unittest.TestCase):
+    """Notion is off for new users and stays on for people who already set it up."""
+
+    def test_new_user_has_notion_off(self):
+        from pomodoro.database import Database
+        from pomodoro.ui.notion_ui import is_connected, notion_enabled
+        db = Database(":memory:")
+        self.assertFalse(notion_enabled(db))
+        self.assertFalse(is_connected(db))
+        db.close()
+
+    def test_existing_setup_turns_it_on_until_chosen(self):
+        from pomodoro.database import Database
+        from pomodoro.ui.notion_ui import is_connected, notion_enabled
+        db = Database(":memory:")
+        db.create_task("Plan", notion_url="https://www.notion.so/Plan-0123")
+        self.assertTrue(notion_enabled(db))
+        db.set_setting("notion_token", protect("secret_x"))
+        self.assertTrue(is_connected(db))
+        db.set_setting("notion_enabled", False)          # switched off in Settings
+        self.assertFalse(notion_enabled(db))
+        self.assertFalse(is_connected(db))
+        db.close()
+
+    def test_other_links_do_not_count_as_notion(self):
+        from pomodoro.database import Database
+        from pomodoro.ui.notion_ui import notion_enabled
+        db = Database(":memory:")
+        db.create_task("Read doc", notion_url="https://docs.google.com/document/d/1")
+        self.assertFalse(notion_enabled(db))
+        db.close()
+
+
 if __name__ == "__main__":
     unittest.main()

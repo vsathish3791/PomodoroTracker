@@ -21,7 +21,8 @@ from pomodoro.lists import remaining_estimate
 from pomodoro.models import PRIORITIES, due_label
 from pomodoro.ui.clipboard import copy_text
 from pomodoro.ui.goals_tab import PILL, card, pill
-from pomodoro.ui.notion_ui import is_connected, notion_client, run_in_background
+from pomodoro.ui.notion_ui import (is_connected, notion_client, notion_enabled,
+                                   run_in_background)
 from pomodoro.notion import NotionError, parse_id
 from pomodoro.ui.reports_tab import LabelDialog
 from pomodoro.ui.task_dialog import TaskDialog
@@ -164,9 +165,14 @@ class CloseDayDialog(QDialog):
         actions = QHBoxLayout()
         plan = QPushButton("Plan tomorrow…")
         plan.clicked.connect(self._plan_tomorrow)
-        copy = QPushButton("Copy for Notion Journal")
-        copy.setToolTip("Copies today's numbers for your Journal's “What happened?”. "
-                        "Write the reflection itself in Notion.")
+        use_notion = notion_enabled(db)
+        if use_notion:
+            copy = QPushButton("Copy for Notion Journal")
+            copy.setToolTip("Copies today's numbers for your Journal's “What happened?”. "
+                            "Write the reflection itself in Notion.")
+        else:
+            copy = QPushButton("Copy day summary")
+            copy.setToolTip("Copies today's numbers – paste them into your journal or notes.")
         copy.clicked.connect(self._copy)
         self.send = QPushButton("Send to Notion Journal")
         self.send.setToolTip("Adds today's numbers to today's Journal entry (creates it if "
@@ -176,6 +182,7 @@ class CloseDayDialog(QDialog):
         copy.setVisible(not self.send.isVisible())
         journal = QPushButton("Open Notion Journal ↗")
         journal.clicked.connect(self._open_journal)
+        journal.setVisible(use_notion)
         for button in (plan, self.send, copy, journal):
             actions.addWidget(button)
         layout.addLayout(actions)
@@ -194,7 +201,9 @@ class CloseDayDialog(QDialog):
 
     def _copy(self):
         if copy_text(self, self.summary.journal_text()):
-            self.copied.setText("Copied. Paste it into today's Journal entry (What happened?).")
+            self.copied.setText("Copied. Paste it into today's Journal entry (What happened?)."
+                                if notion_enabled(self.db) else
+                                "Copied. Paste it into your journal or notes.")
 
     def _send(self):
         try:                                     # read settings here, not in the worker

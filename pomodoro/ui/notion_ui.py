@@ -1,10 +1,13 @@
 """Notion pieces of the UI: the Settings -> Notion page and a helper that talks to Notion
-in the background so the window never freezes."""
+in the background so the window never freezes.
+
+Notion is optional. With "Use Notion" off (the default for new users) the app shows no
+Notion buttons or wording at all."""
 
 import threading
 
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QLineEdit, QPushButton, QWidget
 
 from pomodoro.database import Database
 from pomodoro.notion import NotionClient, NotionError, parse_id
@@ -26,8 +29,18 @@ def notion_client(db: Database) -> NotionClient:
     return NotionClient(unprotect(db.get_setting("notion_token")))
 
 
+def notion_enabled(db: Database) -> bool:
+    """Whether to show Notion features. Until chosen in Settings: on only if Notion was
+    already set up (so upgrading users keep it), off for everyone else."""
+    value = db.get_setting("notion_enabled")
+    if value in ("0", "1"):
+        return value == "1"
+    return bool(db.get_setting("notion_token") or db.get_setting("notion_journal_url")
+                or db.get_setting("notion_weekly_url") or db.has_notion_links())
+
+
 def is_connected(db: Database) -> bool:
-    return bool(db.get_setting("notion_token"))
+    return notion_enabled(db) and bool(db.get_setting("notion_token"))
 
 
 class _Relay(QObject):
@@ -63,6 +76,8 @@ class NotionPage(QWidget):
     def __init__(self, db: Database, parent=None):
         super().__init__(parent)
         self.db = db
+        self.enabled = QCheckBox("Use Notion (optional)")
+        self.enabled.setToolTip("Off: the app works on its own and shows no Notion buttons.")
         help_label = QLabel(SETUP_HELP, objectName="cardNote", wordWrap=True)
         help_label.setOpenExternalLinks(True)
         help_label.setTextFormat(Qt.RichText)
@@ -75,6 +90,10 @@ class NotionPage(QWidget):
         self.result = QLabel(objectName="cardNote", wordWrap=True)
 
         form = QFormLayout(self)
+        form.addRow(self.enabled)
+        form.addRow(QLabel("Everything in the app works without Notion. Turn this on only "
+                           "if you keep a journal or weekly reviews in Notion.",
+                           objectName="cardNote", wordWrap=True))
         form.addRow(help_label)
         form.addRow("Integration secret", self.token)
         form.addRow("Journal database", self.journal)
@@ -84,9 +103,18 @@ class NotionPage(QWidget):
         self.token.setText(unprotect(db.get_setting("notion_token")))
         self.journal.setText(db.get_setting("notion_journal_url"))
         self.weekly.setText(db.get_setting("notion_weekly_url"))
+        self.enabled.toggled.connect(self._show_enabled)
+        self.enabled.setChecked(notion_enabled(db))
+        self._show_enabled(self.enabled.isChecked())
+
+    def _show_enabled(self, on: bool):
+        for widget in (self.token, self.journal, self.weekly, self.test):
+            widget.setEnabled(on)
 
     def values_ok(self) -> str:
         """'' when the links are usable (or empty), else what's wrong."""
+        if not self.enabled.isChecked():
+            return ""
         for name, box in (("Journal database", self.journal), ("Weekly reviews page", self.weekly)):
             if box.text().strip():
                 try:
@@ -96,6 +124,7 @@ class NotionPage(QWidget):
         return ""
 
     def save(self):
+        self.db.set_setting("notion_enabled", self.enabled.isChecked())
         self.db.set_setting("notion_token", protect(self.token.text().strip()))
         self.db.set_setting("notion_journal_url", self.journal.text().strip())
         self.db.set_setting("notion_weekly_url", self.weekly.text().strip())

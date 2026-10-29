@@ -154,6 +154,7 @@ DEFAULT_SETTINGS = {
     "notion_journal_url": "",       # your Notion Journal database (opened from Close the day)
     "notion_weekly_url": "",        # the Notion page that holds weekly reviews
     "notion_token": "",             # Notion integration secret, encrypted (secret_store)
+    "notion_enabled": "",           # "1"/"0" once chosen in Settings; "" = decide from setup
     "sound_enabled": "1",
 }
 
@@ -1099,6 +1100,11 @@ class Database:
                 (task_id,),
             )
         return task_id
+
+    def has_notion_links(self) -> bool:
+        """True if any task links to a Notion page."""
+        return self.conn.execute(
+            "SELECT 1 FROM tasks WHERE notion_url LIKE '%notion.%' LIMIT 1").fetchone() is not None
 
     def recent_open_tasks(self, limit: int = 15, project_id: object = "all") -> list[str]:
         """Titles of tasks not yet done, most recently worked on first.

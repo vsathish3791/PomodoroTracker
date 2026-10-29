@@ -20,7 +20,8 @@ tick *Add python.exe to PATH*, or `winget install Python.Python.3.12`).
    Start menu (add `-Startup` to start it when you sign in). Run it again after updating.
 
 Each person's tasks stay on their own PC in `%APPDATA%\PomodoroTracker\pomodoro.db`;
-nothing is shared or uploaded. The Notion connection is optional and per person.
+nothing is shared or uploaded. **No Notion needed**: new users get the app without any
+Notion buttons; anyone who wants it ticks *Use Notion* in Settings -> Notion.
 
 ### Share it
 

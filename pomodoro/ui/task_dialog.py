@@ -22,6 +22,7 @@ from pomodoro.database import Database
 from pomodoro.models import (DEFAULT_PRIORITY, ENERGY_SLOTS, NATURE_HINTS, NATURES, PRIORITIES,
                              STATUSES)
 from pomodoro.recurrence import DAY_NAMES, FREQUENCIES, Schedule, schedule_from_row
+from pomodoro.ui.notion_ui import notion_enabled
 from pomodoro.ui.project_picker import ProjectPicker
 
 JUST_THIS, THIS_AND_FUTURE = "this", "future"
@@ -185,8 +186,11 @@ class TaskDialog(QDialog):
         self.notes_input = QPlainTextEdit(placeholderText="Optional notes")
         self.notes_input.setFixedHeight(56)
 
-        # Optional link to a Notion page with the background (notes stay in Notion).
-        self.notion_input = QLineEdit(placeholderText="Paste a Notion page link (optional)")
+        # Optional link to a page with the background (e.g. Notion; notes stay there).
+        use_notion = notion_enabled(db)
+        self.notion_input = QLineEdit(placeholderText="Paste a Notion page link (optional)"
+                                      if use_notion else
+                                      "Paste a link to notes or a document (optional)")
         self.notion_open = QPushButton("Open")
         self.notion_open.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(self.notion_input.text().strip())))
@@ -224,7 +228,7 @@ class TaskDialog(QDialog):
         form.addRow("Status", self.status_input)
         form.addRow("Checklist", self.checklist_input)
         form.addRow("Notes", self.notes_input)
-        form.addRow("Notion", notion_row)
+        form.addRow("Notion" if use_notion else "Link", notion_row)
 
         body = QWidget()
         body_layout = QVBoxLayout(body)

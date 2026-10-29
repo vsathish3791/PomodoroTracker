@@ -178,7 +178,8 @@ class TaskRow(QFrame):
         if task.get("energy_slot") and not done:
             meta_parts.append(f'<span style="color:{MUTED}">{ENERGY_SHORT[task["energy_slot"]]}</span>')
         if task.get("notion_url"):
-            meta_parts.append(f'<span style="color:{MUTED}">N↗</span>')
+            mark = "N↗" if "notion." in task["notion_url"] else "↗"
+            meta_parts.append(f'<span style="color:{MUTED}">{mark}</span>')
         if task.get("notes"):
             meta_parts.append(f'<span style="color:{MUTED}">✎</span>')
         meta = QLabel("&nbsp;&nbsp;".join(meta_parts), objectName="todoMeta")
@@ -869,7 +870,8 @@ class TodoTab(QWidget):
             series.addAction("Edit series…", lambda: self.edit_series(task["recurrence_id"]))
             series.addAction("Stop repeating…", lambda: self._stop_series(task["recurrence_id"]))
         if task["notion_url"]:
-            menu.addAction("Open in Notion ↗",
+            menu.addAction("Open in Notion ↗" if "notion." in task["notion_url"]
+                           else "Open link ↗",
                            lambda: QDesktopServices.openUrl(QUrl(task["notion_url"])))
         menu.addAction("Reopen" if done else "✓  Mark done", lambda: self._toggle_task(task_id))
         move = menu.addMenu("Move to project")
