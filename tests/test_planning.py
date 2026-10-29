@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 
 from pomodoro import lists, planning
 from pomodoro.database import Database
+from pomodoro.daylog import build_day_log
 
 WEEKDAYS = {0, 1, 2, 3, 4}
 MON = date(2026, 10, 26)
@@ -58,7 +59,7 @@ class PlanningTests(unittest.TestCase):
         cap = planning.capacity(self.db, MON)
         self.assertEqual((cap.available, cap.planned), (4, 5))
 
-    def test_day_summary_and_journal_text(self):
+    def test_day_summary_and_day_log(self):
         self.db.plan_task(self.report, MON)
         self.db.plan_task(self.deck, MON)
         focus(self.db, self.deck, MON, 2)
@@ -77,11 +78,20 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(summary.habits, (1, 1))
         self.assertEqual(summary.routines, (0, 1))
         self.assertEqual([t["title"] for t in summary.unfinished_planned], ["Report"])
-        text = summary.journal_text()
-        self.assertIn("2 pomodoros (50 min focus)", text)
-        self.assertIn("Habits 1/1", text)
-        self.assertIn("top cause: Meeting", text)
-        self.assertIn("Not finished: Report", text)
+        log = build_day_log(self.db, MON)
+        self.assertEqual([(t.title, t.pomodoros, t.minutes) for t in log.completed],
+                         [("Read", 0, 0), ("Deck", 2, 50)])
+        self.assertEqual(sorted(log.focus), [("Deck", True), ("Report", False)])
+        self.assertEqual(log.focus_text, "2 planned · 1 done")
+        self.assertEqual(log.interruptions_text(), "1 stopped early (12 min lost) · "
+                                                   "top cause: Meeting")
+        self.assertEqual((log.energy, log.energy_reason),
+                         ("low", "2/6 🍅 · 1 stopped early (12 min lost)"))     # 2 of 6 < 40%
+        text = log.markdown()
+        for part in ("# Mon 26 Oct 2026 – Day log", "## ✅ Completed",
+                     "- Deck – 2 🍅, 50 min", "- ○ not done – Report", "Habits 1/1",
+                     "- Cause – Meeting: 1"):
+            self.assertIn(part, text)
         planning.move_to(self.db, [self.report], MON + timedelta(days=1))
         self.assertEqual(self.db.get_task(self.report)["planned_date"], "2026-10-27")
 

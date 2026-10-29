@@ -1,21 +1,26 @@
-"""Minimal Notion connection (optional): today's numbers to your Journal, the weekly review
-to a page. The app keeps numbers and actions; Notion keeps words and reflection.
+"""Minimal Notion connection (optional): the day's facts to a "Day Log" database, the
+weekly review to a page. The app keeps facts and actions; your journal entry itself is
+written in Notion (e.g. by your Notion AI journaling assistant reading the Day Log).
 
 Setup (once): create an *internal integration* at https://www.notion.so/profile/integrations,
-copy its token into Settings -> Notion, and share your Journal database and your weekly-review
-page with the integration (••• -> Connections -> add it).
+copy its token into Settings -> Notion, and add the integration to the page that holds your
+Journal and Day Log (••• -> Connections), and to your weekly-review page.
 """
 
 import json
 import re
 import urllib.error
 import urllib.request
-from datetime import date
+from datetime import datetime
 
 API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 TEXT_LIMIT = 2000          # Notion's limit per rich-text piece
-APP_LINE = "Pomodoro Tracker –"
+# Energy signal (energy.py) -> Day Log select option (name, colour)
+ENERGY_OPTIONS = [("High", "green"), ("Steady", "blue"), ("Low", "orange"),
+                  ("Rest day", "gray"), ("No data", "default")]
+ENERGY_NAMES = {"high": "High", "steady": "Steady", "low": "Low", "rest": "Rest day",
+                "none": "No data"}
 
 
 class NotionError(Exception):
@@ -95,83 +100,135 @@ class NotionClient:
                 return plain_text(prop["title"]) or "(untitled)"
         return "(untitled)"
 
-    # ---------- journal ----------
+    # ---------- day log ----------
 
-    def journal_fields(self, database_id: str) -> dict:
-        """Find the journal's title, date, type ('Daily') and 'What happened?' properties."""
-        props = self.request("GET", f"/databases/{database_id}")["properties"]
-        fields = {"title": None, "date": None, "type": None, "happened": None}
-        for name, prop in props.items():
-            kind = prop["type"]
-            if kind == "title":
-                fields["title"] = name
-            elif kind == "date" and fields["date"] is None:
-                fields["date"] = name
-            elif kind == "select" and any(o["name"].lower() == "daily"
-                                          for o in prop["select"].get("options", [])):
-                fields["type"] = name
-            elif kind == "rich_text" and "happen" in name.lower():
-                fields["happened"] = name
-        if fields["happened"] is None:   # fall back to the first text property
-            fields["happened"] = next((n for n, p in props.items() if p["type"] == "rich_text"),
-                                      None)
-        if not fields["title"] or not fields["date"] or not fields["happened"]:
-            raise NotionError("The journal needs a title, a date and a text property "
-                              "(e.g. 'What happened?').")
-        return fields
+    def parent_page(self, database_id: str) -> tuple[str, str]:
+        """(id, title) of the page that holds a database - e.g. where your Journal lives."""
+        parent = self.request("GET", f"/databases/{database_id}").get("parent", {})
+        if parent.get("type") == "block_id":          # inline in a page, inside a block
+            parent = self.request("GET", f"/blocks/{parent['block_id']}").get("parent", {})
+        if parent.get("type") != "page_id":
+            raise NotionError("Couldn't find the page that holds your Journal. "
+                              "Paste the link of the page to put the Day Log in.")
+        return parent["page_id"], self.page_title(parent["page_id"])
 
-    def send_journal(self, database_id: str, day: date, summary: str) -> str:
-        """Put today's numbers in the day's journal entry. Returns the entry's link.
+    def create_day_log_database(self, parent_page_id: str,
+                                journal_id: str | None = None) -> tuple[str, str]:
+        """Create the "Day Log" database under a page. Returns (id, link).
 
-        If an entry for the day exists, only the app's own line is added or replaced –
-        anything you wrote stays untouched. Otherwise a new 'Daily' entry is created.
+        With `journal_id`, it is linked both ways with your Journal: Day Log gets
+        "Journal entry", and your Journal gets a "Day Log" property. Nothing else in the
+        Journal changes.
         """
-        fields = self.journal_fields(database_id)
-        conditions = [{"property": fields["date"], "date": {"equals": day.isoformat()}}]
-        if fields["type"]:
-            conditions.append({"property": fields["type"], "select": {"equals": "Daily"}})
-        found = self.request("POST", f"/databases/{database_id}/query",
-                             {"filter": {"and": conditions}, "page_size": 1})["results"]
+        text = {"rich_text": {}}
+        properties = {
+            "Name": {"title": {}}, "Date": {"date": {}},
+            "Pomodoros": {"number": {}}, "Daily goal": {"number": {}},
+            "Focus minutes": {"number": {}}, "Tasks done": {"number": {}},
+            "Today's focus": text, "Habits": text, "Routines": text, "Interruptions": text,
+            "Energy signal": {"select": {"options": [
+                {"name": name, "color": color} for name, color in ENERGY_OPTIONS]}},
+            "Energy reason": text, "Sent at": {"date": {}},
+        }
+        if journal_id:
+            properties["Journal entry"] = {"relation": {
+                "database_id": journal_id, "type": "dual_property", "dual_property": {}}}
+        created = self.request("POST", "/databases", {
+            "parent": {"type": "page_id", "page_id": parent_page_id},
+            "title": rich_text("Day Log"), "icon": {"type": "emoji", "emoji": "🍅"},
+            "properties": properties})
+        if journal_id:          # name the Journal's side of the link "Day Log"
+            relation = created["properties"].get("Journal entry", {}).get("relation", {})
+            synced = relation.get("dual_property", {}).get("synced_property_name")
+            if synced and synced != "Day Log":
+                try:
+                    self.request("PATCH", f"/databases/{journal_id}", {
+                        "properties": {synced: {"name": "Day Log"}}})
+                except NotionError:
+                    pass        # the link works either way; only its name differs
+        return created["id"], created.get("url", "")
+
+    def send_day_log(self, database_id: str, log) -> str:
+        """Create or update the day's page in the Day Log database. Returns its link.
+
+        One page per date: sending again refreshes the facts and the page body, and
+        leaves the link to your Journal entry alone. `log` is a daylog.DayLog.
+        """
+        properties = {
+            "Name": {"title": rich_text(log.title)},
+            "Date": {"date": {"start": log.day.isoformat()}},
+            "Pomodoros": {"number": log.pomodoros},
+            "Daily goal": {"number": log.goal},
+            "Focus minutes": {"number": log.focus_minutes},
+            "Tasks done": {"number": len(log.completed)},
+            "Today's focus": {"rich_text": rich_text(log.focus_text)},
+            "Habits": {"rich_text": rich_text(f"{log.habits[0]}/{log.habits[1]}")},
+            "Routines": {"rich_text": rich_text(f"{log.routines[0]}/{log.routines[1]}")},
+            "Interruptions": {"rich_text": rich_text(log.interruptions_text())},
+            "Energy signal": {"select": {"name": ENERGY_NAMES[log.energy]}},
+            "Energy reason": {"rich_text": rich_text(log.energy_reason)},
+            "Sent at": {"date": {"start": datetime.now().isoformat(timespec="minutes")}},
+        }
+        blocks = markdown_blocks(log.markdown())
+        found = self.request("POST", f"/databases/{database_id}/query", {
+            "filter": {"property": "Date", "date": {"equals": log.day.isoformat()}},
+            "page_size": 1})["results"]
         if found:
             page = found[0]
-            current = plain_text(page["properties"][fields["happened"]]["rich_text"])
-            kept = [line for line in current.split("\n") if not line.startswith(APP_LINE)]
-            text = "\n".join([*[line for line in kept if line.strip()], summary])
-            self.request("PATCH", f"/pages/{page['id']}", {"properties": {
-                fields["happened"]: {"rich_text": rich_text(text)}}})
+            self.request("PATCH", f"/pages/{page['id']}", {"properties": properties})
+            self._replace_children(page["id"], blocks)
             return page.get("url", "")
-        properties = {
-            fields["title"]: {"title": rich_text(f"{day:%d %b %Y} – Daily check-in")},
-            fields["date"]: {"date": {"start": day.isoformat()}},
-            fields["happened"]: {"rich_text": rich_text(summary)},
-        }
-        if fields["type"]:
-            properties[fields["type"]] = {"select": {"name": "Daily"}}
         page = self.request("POST", "/pages", {"parent": {"database_id": database_id},
-                                               "properties": properties})
+                                               "properties": properties,
+                                               "children": blocks[:100]})
+        self._append_children(page["id"], blocks[100:])
         return page.get("url", "")
+
+    def _replace_children(self, block_id: str, blocks: list[dict]):
+        old, cursor = [], None
+        while True:
+            data = self.request("GET", f"/blocks/{block_id}/children?page_size=100"
+                                + (f"&start_cursor={cursor}" if cursor else ""))
+            old += [b["id"] for b in data.get("results", [])]
+            cursor = data.get("next_cursor")
+            if not data.get("has_more") or not cursor:
+                break
+        for child in old:
+            self.request("DELETE", f"/blocks/{child}")
+        self._append_children(block_id, blocks)
+
+    def _append_children(self, block_id: str, blocks: list[dict]):
+        for start in range(0, len(blocks), 100):                # Notion's limit per request
+            self.request("PATCH", f"/blocks/{block_id}/children",
+                         {"children": blocks[start:start + 100]})
 
     # ---------- weekly review ----------
 
     def send_weekly(self, parent_page_id: str, title: str, markdown: str) -> str:
         """Create a page under `parent_page_id` from the review's Markdown. Returns its link."""
-        blocks = []
-        for line in markdown.splitlines():
-            if line.startswith("# "):
-                continue                                    # the page title
-            if line.startswith("## "):
-                blocks.append({"object": "block", "type": "heading_2",
-                               "heading_2": {"rich_text": rich_text(line[3:])}})
-            elif line.startswith("- "):
-                blocks.append({"object": "block", "type": "bulleted_list_item",
-                               "bulleted_list_item": {"rich_text": rich_text(line[2:])}})
-            elif line.strip():
-                blocks.append({"object": "block", "type": "paragraph",
-                               "paragraph": {"rich_text": rich_text(line)}})
+        blocks = markdown_blocks(markdown)
         page = self.request("POST", "/pages", {
             "parent": {"page_id": parent_page_id},
             "properties": {"title": {"title": rich_text(title)}},
             "children": blocks[:100]})                      # Notion's limit per request
-        if len(blocks) > 100:
-            self.request("PATCH", f"/blocks/{page['id']}/children", {"children": blocks[100:200]})
+        self._append_children(page["id"], blocks[100:])
         return page.get("url", "")
+
+
+def markdown_blocks(markdown: str) -> list[dict]:
+    """Notion blocks from simple Markdown: '## ' headings, '- ' bullets, paragraphs.
+    The '# ' title line is skipped (it's the page title)."""
+    blocks = []
+    for line in markdown.splitlines():
+        if line.startswith("# "):
+            continue
+        if line.startswith("## "):
+            blocks.append({"object": "block", "type": "heading_2",
+                           "heading_2": {"rich_text": rich_text(line[3:])}})
+        elif line.startswith("- "):
+            blocks.append({"object": "block", "type": "bulleted_list_item",
+                           "bulleted_list_item": {"rich_text": rich_text(line[2:])}})
+        elif line.strip():
+            blocks.append({"object": "block", "type": "paragraph",
+                           "paragraph": {"rich_text": rich_text(line)}})
+    return blocks

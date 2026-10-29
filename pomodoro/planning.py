@@ -3,7 +3,7 @@
   * Morning   - plan: today's routines/habits are automatic; pick a few focus tasks
                 and check them against what your daily goal allows.
   * Evening   - check: today's numbers, move unfinished planned tasks, plan tomorrow,
-                and copy a short summary for your Notion Journal ("What happened?").
+                and the day log for your journal (daylog.py).
   * Weekly    - review (Falconi's three-generation report):
                 1. Planned  2. Done & results  3. Problems & next actions.
 
@@ -75,26 +75,6 @@ class DaySummary:
     distractions: int
     top_cause: str | None
     unfinished_planned: list[dict] = field(default_factory=list)
-
-    def journal_text(self) -> str:
-        """A short "What happened?" for the Notion Journal: numbers only."""
-        hours, mins = divmod(self.focus_minutes, 60)
-        focus = f"{hours} h {mins} min" if hours else f"{mins} min"
-        parts = [f"Pomodoro Tracker – {self.day:%a %d %b}: {self.pomodoros} pomodoros "
-                 f"({focus} focus)"]
-        if self.finished:
-            parts.append(f"{len(self.finished)} task(s) done: " + "; ".join(self.finished))
-        if self.habits[1]:
-            parts.append(f"Habits {self.habits[0]}/{self.habits[1]}")
-        if self.routines[1]:
-            parts.append(f"Routines {self.routines[0]}/{self.routines[1]}")
-        if self.stopped or self.distractions:
-            parts.append(f"Interruptions: {self.stopped} stopped early "
-                         f"({self.minutes_lost} min lost), {self.distractions} distraction(s)"
-                         + (f" – top cause: {self.top_cause}" if self.top_cause else ""))
-        if self.unfinished_planned:
-            parts.append("Not finished: " + "; ".join(t["title"] for t in self.unfinished_planned))
-        return ". ".join(parts) + "."
 
 
 def day_summary(db: Database, day: date) -> DaySummary:

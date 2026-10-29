@@ -82,6 +82,21 @@ Your data stays in `%APPDATA%\PomodoroTracker`, the same as the installed versio
 
 ## What works now
 
+### Day Log and Energy signal (v1.10)
+
+- **Close the day -> Day log for [date]**: **Copy day log** (everyone) – the day's facts as
+  text: tasks completed and worked on (with 🍅 and minutes), today's focus, repeating tasks
+  missed, interruptions and causes, stretch and practice, and an **Energy signal**.
+- **Energy signal** (a hint, `pomodoro/energy.py`): High · Steady · Low · Rest day · No
+  data, with the reason in plain words; limits in Settings -> Goals.
+- With Notion on: **Send day log** creates or updates that day's page in a Notion
+  **Day Log** database (one page per date), and **Open in Notion ↗** opens it.
+  Settings -> Notion -> **Create…** makes the database next to your Journal, linked to it.
+- Your journal entry itself is written in Notion by a Notion AI **Journal Assistant** that
+  reads the Day Log and asks one question at a time – setup and instructions in
+  [docs/notion-journal-assistant.md](docs/notion-journal-assistant.md). The app no longer
+  writes to the Journal.
+
 ### Notion connection and sharing (v1.9)
 
 - **Settings -> Notion** (optional): paste an internal integration secret, your Journal
@@ -378,6 +393,7 @@ Settings are changed in the app (⚙ Settings) and stored in the same file.
 | `pomodoro/ui/settings_dialog.py` | The Settings window |
 | `pomodoro/notion.py`, `pomodoro/ui/notion_ui.py` | Optional Notion connection (Journal, weekly page) |
 | `pomodoro/secret_store.py` | Encrypts the Notion secret (Windows DPAPI) |
+| `pomodoro/daylog.py`, `pomodoro/energy.py` | The day log (facts for your journal) and its Energy signal |
 | `setup.ps1`, `create_shortcuts.ps1` | Install on a PC from source; shortcuts |
 | `pomodoro/ui/list_editor.py` | Editable lists for categories and types |
 | `pomodoro/ui/mini_window.py` | The always-on-top mini timer |

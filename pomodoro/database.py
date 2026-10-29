@@ -155,6 +155,8 @@ DEFAULT_SETTINGS = {
     "notion_weekly_url": "",        # the Notion page that holds weekly reviews
     "notion_token": "",             # Notion integration secret, encrypted (secret_store)
     "notion_enabled": "",           # "1"/"0" once chosen in Settings; "" = decide from setup
+    "notion_day_log_url": "",       # the Notion "Day Log" database (Close the day -> Send day log)
+    "energy_thresholds": "{}",      # Energy signal limits changed in Settings (JSON, energy.py)
     "sound_enabled": "1",
 }
 

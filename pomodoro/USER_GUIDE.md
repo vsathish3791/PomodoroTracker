@@ -26,8 +26,10 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
    filters the task list (it never moves a task – do that in To-Do). Stopped early? Pick a reason in one click. Distracted? Click
    **⚡ I got distracted** – the timer keeps going.
 3. **Evening – Today → ☾ Close the day…** See today's numbers, move unfinished tasks to
-   tomorrow, plan tomorrow, and **Copy day summary** for your journal (with Notion on:
-   **Send to Notion Journal**).
+   tomorrow, plan tomorrow, and **Copy day log** – the day's facts for your journal
+   (tasks done and worked on, focus, interruptions, and an **Energy signal**: High,
+   Steady, Low or Rest day). With Notion on: **Send day log** puts them in your Notion
+   Day Log, where your Notion AI journaling assistant helps you write the entry.
 4. **Weekly – Reports → Weekly review.** Planned → Done & results → Problems & next
    actions. **Copy** or **Save as…** (with Notion on: **Send to Notion**).
 
@@ -81,7 +83,8 @@ Top right: **⧉ Mini timer** (small always-on-top window), **⚙ Settings**, **
   points, and the global **Start/Pause shortcut** (default **Ctrl+Alt+P**, works from any
   app).
 - **⚙ Settings -> Notion** (optional, off for new users): tick **Use Notion**, then connect
-  once so the Send buttons work. Create an
+  once so the Send buttons work; **Create…** makes your Day Log database next to your
+  Journal. Energy signal limits are in **⚙ Settings -> Goals**. Create an
   internal integration at notion.so/profile/integrations, paste its secret, add the
   integration to your Journal database and weekly-reviews page (••• -> Connections),
   paste their links and press **Test**. The app only sends numbers; it never changes

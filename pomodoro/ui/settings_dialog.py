@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout
                                QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from pomodoro.database import Database
+from pomodoro.energy import EnergyThresholds
 from pomodoro.priority import DEFAULT_WEIGHTS, ScoreWeights
 from pomodoro.ui.list_editor import editor_page
 from pomodoro.ui.notion_ui import NotionPage
@@ -105,6 +106,17 @@ class SettingsDialog(QDialog):
         form.addRow("Working days", days)
         form.addRow(note("Used to work out which deadlines are at risk: only working days "
                          "count as time you can spend on tasks."))
+
+        # Energy signal of the day log (energy.py)
+        self.energy_high = spin(50, 150, " % of the goal")
+        self.energy_low = spin(0, 90, " % of the goal")
+        self.energy_friction = spin(1, 20, " interruptions")
+        form.addRow(QLabel("<b>Energy signal</b> (a hint in the day log)"))
+        form.addRow("High at or above", self.energy_high)
+        form.addRow("Low below", self.energy_low)
+        form.addRow("Low from", self.energy_friction)
+        form.addRow(note("Interruptions = stopped early + distractions + 2 for each task "
+                         "that felt like Panic. Rest day: not a working day with under 2 🍅."))
         return page
 
     def _score_page(self) -> QWidget:
@@ -167,6 +179,10 @@ class SettingsDialog(QDialog):
             box.setChecked(day in working)
 
         self._show_weights(ScoreWeights.from_dict(db.get_json("score_weights")))
+        energy = EnergyThresholds.from_dict(db.get_json("energy_thresholds"))
+        self.energy_high.setValue(energy.high_percent)
+        self.energy_low.setValue(energy.low_percent)
+        self.energy_friction.setValue(energy.low_friction)
 
         self.hotkey_enabled.setChecked(db.get_bool("hotkey_enabled"))
         self.hotkey_input.setKeySequence(QKeySequence(db.get_setting("hotkey")))
@@ -204,6 +220,11 @@ class SettingsDialog(QDialog):
         db.set_setting("working_days", ",".join(str(day) for day in working))
         weights = ScoreWeights(**{k: box.value() for k, box in self.weight_boxes.items()})
         db.set_setting("score_weights", json.dumps(weights.to_dict()))
+        energy = EnergyThresholds.from_dict(db.get_json("energy_thresholds"))
+        energy.high_percent = self.energy_high.value()
+        energy.low_percent = min(self.energy_low.value(), self.energy_high.value())
+        energy.low_friction = self.energy_friction.value()
+        db.set_setting("energy_thresholds", json.dumps(energy.to_dict()))
         db.set_setting("hotkey_enabled", self.hotkey_enabled.isChecked())
         if hotkey:
             db.set_setting("hotkey", hotkey)

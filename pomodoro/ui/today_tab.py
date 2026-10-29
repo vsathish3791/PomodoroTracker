@@ -3,20 +3,23 @@
 Morning: routines and habits appear by themselves; "Plan my day" picks a few focus
 tasks and checks them against what your daily goal allows.
 Evening: "Close the day" shows today's numbers, moves unfinished planned tasks,
-lets you plan tomorrow, and sends (or copies) a short summary to your Notion Journal.
+lets you plan tomorrow, and copies the day log (or sends it to your Notion Day Log).
 """
 
 from datetime import date, timedelta
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import QDate, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QDateEdit, QDialog, QDialogButtonBox, QFrame,
+                               QHBoxLayout,
                                QInputDialog, QLabel, QListWidget, QListWidgetItem, QMenu,
                                QProgressBar, QPushButton, QScrollArea, QVBoxLayout,
                                QWidget)
 
 from pomodoro import goals, planning
 from pomodoro.database import Database
+from pomodoro.daylog import build_day_log
+from pomodoro.energy import ENERGY
 from pomodoro.lists import remaining_estimate
 from pomodoro.models import PRIORITIES, due_label
 from pomodoro.ui.clipboard import copy_text
@@ -113,7 +116,7 @@ class PlanDialog(QDialog):
 
 
 class CloseDayDialog(QDialog):
-    """Evening check: numbers, unfinished tasks, plan tomorrow, Notion Journal summary."""
+    """Evening check: numbers, unfinished tasks, plan tomorrow, the day log."""
 
     def __init__(self, db: Database, score_order: dict, parent=None):
         super().__init__(parent)
@@ -162,32 +165,46 @@ class CloseDayDialog(QDialog):
                 layout.addWidget(box)
                 self.move_boxes.append(box)
 
+        # The day log: the day's facts for your journal (copy, or send to Notion)
+        use_notion = notion_enabled(db)
+        log_row = QHBoxLayout()
+        log_row.addWidget(QLabel("Day log for"))
+        self.log_day = QDateEdit(QDate.currentDate(), calendarPopup=True)
+        self.log_day.setDisplayFormat("ddd d MMM yyyy")
+        self.log_day.setMaximumDate(QDate.currentDate())
+        log_row.addWidget(self.log_day)
+        self.send = QPushButton("Send day log")
+        self.send.setToolTip("Creates or updates this day's page in your Notion Day Log – "
+                             "then journal about it with your Notion AI assistant.")
+        self.send.clicked.connect(self._send)
+        self.send.setVisible(is_connected(db))
+        self.open_log = QPushButton("Open in Notion ↗")
+        self.open_log.setEnabled(False)
+        self.open_log.setVisible(self.send.isVisible())
+        self.open_log.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.log_url)))
+        copy = QPushButton("Copy day log")
+        copy.setToolTip("Copies the day's facts as text – paste them into your journal"
+                        + (" or a Notion page." if use_notion else " or notes."))
+        copy.clicked.connect(self._copy)
+        for button in (self.send, self.open_log, copy):
+            log_row.addWidget(button)
+        log_row.addStretch()
+        layout.addLayout(log_row)
+        self.copied = QLabel(objectName="cardNote", wordWrap=True)
+        self.copied.setOpenExternalLinks(True)
+        layout.addWidget(self.copied)
+        self.log_url = ""
+
         actions = QHBoxLayout()
         plan = QPushButton("Plan tomorrow…")
         plan.clicked.connect(self._plan_tomorrow)
-        use_notion = notion_enabled(db)
-        if use_notion:
-            copy = QPushButton("Copy for Notion Journal")
-            copy.setToolTip("Copies today's numbers for your Journal's “What happened?”. "
-                            "Write the reflection itself in Notion.")
-        else:
-            copy = QPushButton("Copy day summary")
-            copy.setToolTip("Copies today's numbers – paste them into your journal or notes.")
-        copy.clicked.connect(self._copy)
-        self.send = QPushButton("Send to Notion Journal")
-        self.send.setToolTip("Adds today's numbers to today's Journal entry (creates it if "
-                             "needed). Your own text there is never changed.")
-        self.send.clicked.connect(self._send)
-        self.send.setVisible(is_connected(db) and bool(db.get_setting("notion_journal_url")))
-        copy.setVisible(not self.send.isVisible())
         journal = QPushButton("Open Notion Journal ↗")
         journal.clicked.connect(self._open_journal)
         journal.setVisible(use_notion)
-        for button in (plan, self.send, copy, journal):
-            actions.addWidget(button)
+        actions.addWidget(plan)
+        actions.addWidget(journal)
+        actions.addStretch()
         layout.addLayout(actions)
-        self.copied = QLabel(objectName="cardNote", wordWrap=True)
-        layout.addWidget(self.copied)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Done")
@@ -199,40 +216,46 @@ class CloseDayDialog(QDialog):
         self._apply_moves()
         PlanDialog(self.db, date.today() + timedelta(days=1), self.score_order, self).exec()
 
+    def _day_log(self):
+        return build_day_log(self.db, self.log_day.date().toPython())
+
     def _copy(self):
-        if copy_text(self, self.summary.journal_text()):
-            self.copied.setText("Copied. Paste it into today's Journal entry (What happened?)."
-                                if notion_enabled(self.db) else
-                                "Copied. Paste it into your journal or notes.")
+        if copy_text(self, self._day_log().markdown()):
+            self.copied.setText("Copied. Paste it into your journal"
+                                + (" or Notion." if notion_enabled(self.db) else " or notes."))
 
     def _send(self):
-        try:                                     # read settings here, not in the worker
+        link = self.db.get_setting("notion_day_log_url")
+        if not link:
+            self.copied.setText("Create or link your Day Log first: ⚙ Settings → Notion → "
+                                "Day Log database.")
+            return
+        try:                                     # read the data here, not in the worker
             client = notion_client(self.db)
-            journal = parse_id(self.db.get_setting("notion_journal_url"))
+            database = parse_id(link)
         except NotionError as error:
             self.copied.setText(f"✗ {error}")
             return
-        day, text = date.today(), self.summary.journal_text()
+        log = self._day_log()
 
         def work():
-            return client.send_journal(journal, day, text)
+            return client.send_day_log(database, log)
 
         def done(url, error):
             self.send.setEnabled(True)
             if error:
                 self.copied.setText(f"✗ {error}")
                 return
-            self.journal_entry = url
-            self.copied.setText("Sent to today's Journal entry – add your reflection there.")
+            self.log_url = url
+            self.open_log.setEnabled(bool(url))
+            self.copied.setText(f"Sent – {log.title} (Energy: {ENERGY[log.energy]}). "
+                                "Now journal about it with your Notion assistant.")
 
         self.send.setEnabled(False)
         self.copied.setText("Sending…")
         run_in_background(self, work, done)
 
     def _open_journal(self):
-        if getattr(self, "journal_entry", None):
-            QDesktopServices.openUrl(QUrl(self.journal_entry))
-            return
         url = self.db.get_setting("notion_journal_url")
         if not url:
             url, ok = QInputDialog.getText(
